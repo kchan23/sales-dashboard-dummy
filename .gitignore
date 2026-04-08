@@ -1,0 +1,65 @@
+# Data files (large and environment-specific)
+exports/
+
+# Environment variables
+.env
+.env.local
+.env.*.local
+
+# Dependencies (for Python/Streamlit)
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+env/
+venv/
+ENV/
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+
+# IDE and editor files
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node (if using frontend build tools)
+node_modules/
+npm-debug.log
+yarn-error.log
+
+# Streamlit-specific
+.streamlit/secrets.toml
+
+# Google Cloud Service Account Keys (NEVER COMMIT!)
+*-gcs-key.json
+credentials.json
+
+# Toast API credentials and test output (NEVER COMMIT!)
+toast_credentials.json
+toast_api/test_output/
+scripts/test_output/
+
+doughzone_analytics.db
+
+#Workspace file
+*.code-workspace
+
+# Analysis notebooks (not for version control)
+analysis/
