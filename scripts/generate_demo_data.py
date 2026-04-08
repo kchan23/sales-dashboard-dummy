@@ -65,20 +65,20 @@ HOUR_WEIGHTS = np.array([0.3, 1.5, 3.0, 2.5, 1.5, 1.0, 1.5, 3.5, 4.0, 2.5, 1.0, 
 
 EMPLOYEES = {
     "demo_downtown": [
-        ("Alex Rivera", "Server", 18.00),
-        ("Brooke Chen", "Server", 17.50),
-        ("Cameron Park", "Cook", 20.00),
-        ("Dana Kim", "Cook", 19.50),
-        ("Ellis Wong", "Manager", 28.00),
-        ("Finn Lee", "Server", 17.00),
+        ("Employee 01", "Server", 18.00),
+        ("Employee 02", "Server", 17.50),
+        ("Employee 03", "Cook", 20.00),
+        ("Employee 04", "Cook", 19.50),
+        ("Employee 05", "Manager", 28.00),
+        ("Employee 06", "Server", 17.00),
     ],
     "demo_westside": [
-        ("Grace Tan", "Server", 17.50),
-        ("Harper Wu", "Server", 18.00),
-        ("Indira Patel", "Cook", 19.50),
-        ("Jordan Lopez", "Cook", 20.00),
-        ("Kai Nguyen", "Manager", 27.00),
-        ("Lane Kim", "Server", 17.00),
+        ("Employee 07", "Server", 17.50),
+        ("Employee 08", "Server", 18.00),
+        ("Employee 09", "Cook", 19.50),
+        ("Employee 10", "Cook", 20.00),
+        ("Employee 11", "Manager", 27.00),
+        ("Employee 12", "Server", 17.00),
     ],
 }
 
