@@ -1,6 +1,6 @@
 # DoughZone Analytics Dashboard
 
-A data analytics dashboard for the DoughZone pizza restaurant that visualizes sales, menu performance, inventory, and customer reviews.
+A data analytics dashboard for Dough Zone that visualizes sales, menu performance, inventory, and customer reviews.
 
 ## Project Structure
 
