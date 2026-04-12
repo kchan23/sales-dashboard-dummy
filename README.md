@@ -1,12 +1,6 @@
-NOTE: For credentials, please ask IT. To use the scripts/access BigQuery, you need to feed the credentials in a JSON format. For parquet files to work on analytics, please request them seperately as well.
-
 # DoughZone Analytics Dashboard
 
 A data analytics dashboard for the DoughZone pizza restaurant that visualizes sales, menu performance, inventory, and customer reviews.
-
-## Status
-
-Currently converting from React prototype to Streamlit application for easier deployment and data processing.
 
 ## Project Structure
 
