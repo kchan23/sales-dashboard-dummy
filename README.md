@@ -26,8 +26,7 @@ Data is organized by location ID and date:
 - **Date**: Folder in `YYYYMMDD` format (e.g., `20250116` for Jan 16, 2025)
 
 Expected files in each date folder:
-- CSV: `OrderDetails.csv`, `PaymentDetails.csv`, `TimeEntries.csv`, `ItemSelectionDetails.csv`, `CheckDetails.csv`
-- Excel: `AccountingReport.xlsx`, `AllItemsReport.xlsx`, `CashEntries.xlsx`, `HouseAccountExport.xlsx`, `KitchenTimings.xlsx`, `ModifiersSelectionDetails.xlsx`
+- Parquet files: `OrderDetails`, `PaymentDetails`, `TimeEntries`, `ItemSelectionDetails`, `CheckDetails`
 - JSON: Various formats (parsed per file)
 
 ## Features
