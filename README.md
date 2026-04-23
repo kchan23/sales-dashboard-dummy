@@ -1,4 +1,4 @@
-# DoughZone Analytics Dashboard
+# CPP '26 MSBA Culminating Project - Sales Dashboard w/ Dummy Data
 
 A data analytics dashboard for Dough Zone that visualizes sales, menu performance, inventory, and customer reviews.
 
