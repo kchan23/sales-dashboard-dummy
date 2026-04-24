@@ -20,7 +20,7 @@
 
 ### Changed — field rename: `unit_price` → `prediscount_total`
 - The raw `order_items` column was previously named `unit_price` but was actually populated from Toast's `preDiscountPrice` (a line total, not a per-unit price). Renamed to `prediscount_total` to match its true semantics.
-- Updated everywhere: `database/bigquery.py` (schema + query), `database/create_views.py` (dedup ORDER BY + view SELECT), `database/import_data.py`, `toast_api/transformer.py`, `toast_api/field_mapping.py`, `config/prompts.py` (schema description + 3 example queries), `documentation/data_dictionary.md`.
+- Updated everywhere: `database/bigquery.py` (schema + query), `database/create_views.py` (dedup ORDER BY + view SELECT), `database/import_data.py`, `integrations/toast_api/transformer.py`, `integrations/toast_api/field_mapping.py`, `config/prompts.py` (schema description + 3 example queries), `documentation/data_dictionary.md`.
 - `avg_unit_price` in the `item_performance` view now uses `SAFE_DIVIDE(SUM(total_price), SUM(quantity))` instead of `AVG(unit_price)`.
 - `order_items_clean` view adds `true_unit_price = SAFE_DIVIDE(total_price, quantity)` as the correct per-unit price derivation.
 
@@ -58,7 +58,7 @@
 
 ## [2026-03-14] - Multi-Location Selector & Exploratory Analysis
 
-### Added — `toast_api/location_names.json`
+### Added — `integrations/toast_api/location_names.json`
 - New persistent cache file mapping restaurant GUIDs to human-readable display names
 - Populated with both known locations: Location A (`location-guid-placeholder-1`) and Location B (`location-guid-placeholder-2`)
 - Written/updated automatically on each successful `pull_restaurant()` call
@@ -72,9 +72,9 @@
 - LASSO-CV with `TimeSeriesSplit(n_splits=5, test_size=30)`: Test R²=0.856; dropped `discount_rate`, `tip_rate`, `delivery_mix`
 - K-Means (k=4) stability check: random 80/20 split (temporal split not viable — see data quality notes); Train silhouette=0.3597, Test=0.3569, Gap=0.8% → STABLE
 
-### Changed — `toast_api/scheduler.py`
+### Changed — `integrations/toast_api/scheduler.py`
 - Added `json` and `pathlib.Path` imports
-- Added `_update_location_name_cache(guid, name)` helper that writes/updates `toast_api/location_names.json` after each successful pull
+- Added `_update_location_name_cache(guid, name)` helper that writes/updates `integrations/toast_api/location_names.json` after each successful pull
 - `pull_restaurant()` now calls `_update_location_name_cache()` before returning, ensuring the cache stays current
 
 ### Changed — `database/bigquery.py`
@@ -85,7 +85,7 @@
 
 ### Changed — `app.py`
 - Added `import json` and `from pathlib import Path` to imports
-- Added `load_location_map(db, toast_client=None)` helper — loads GUID→name from `toast_api/location_names.json` cache, falls back to live Toast API, falls back to anonymized "Location N" labels; **never exposes raw UUIDs in the UI**
+- Added `load_location_map(db, toast_client=None)` helper — loads GUID→name from `integrations/toast_api/location_names.json` cache, falls back to live Toast API, falls back to anonymized "Location N" labels; **never exposes raw UUIDs in the UI**
 - Replaced `st.sidebar.selectbox("Select Location", locations)` with `st.sidebar.multiselect("Select Location(s)", ...)` — all locations selected by default, built-in type-to-search filter, checkbox-style multi-selection
 - All five DB data-load calls now pass `selected_locations` (list of UUIDs) instead of a single string
 - LLM `generate_query()` calls pass `selected_locations[0]` as the location context (existing `LLMQueryGenerator` signature unchanged)
@@ -152,7 +152,7 @@ The following issues were discovered during exploratory analysis. These should b
 ### Changed - `database/bigquery.py`
 - `stream_rows()` now inserts in batches (default 500 rows per request) instead of one large payload, improving reliability for large imports
 
-### Changed - `toast_api/scheduler.py`
+### Changed - `integrations/toast_api/scheduler.py`
 - `compute_date_range()` and `pull_restaurant()` now accept `start_date_override` and `end_date_override` parameters for manual backfill control
 - CLI gains `--start-date` and `--end-date` flags to override the automatic date range detection
 

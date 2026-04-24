@@ -27,9 +27,9 @@ if str(PROJECT_ROOT) not in sys.path:
     sys.path.insert(0, str(PROJECT_ROOT))
 
 from database.bigquery import BigQueryManager
-from toast_api.client import ToastAPIClient
-from toast_api.scheduler import DEFAULT_INTERVAL_DAYS, compute_date_range, pull_restaurant
-from toast_api.transformer import (
+from integrations.toast_api.client import ToastAPIClient
+from integrations.toast_api.scheduler import DEFAULT_INTERVAL_DAYS, compute_date_range, pull_restaurant
+from integrations.toast_api.transformer import (
     transform_customer_orders,
     transform_menus,
     transform_order_items,
@@ -47,9 +47,9 @@ logger = logging.getLogger(__name__)
 OUTPUT_ROOT = Path("local_toast_pulls")
 
 # Sample-based planning constants from checked-in files:
-# - `toast_api/test_output/orders_*.json`
+# - `integrations/toast_api/test_output/orders_*.json`
 # - `scripts/test_output/orders_*.json`
-# - `toast_api/test_output/menus.json`
+# - `integrations/toast_api/test_output/menus.json`
 RAW_ORDERS_MB_PER_STORE_DAY = {
     "light": 1.8,
     "average": 2.6,

@@ -1,6 +1,6 @@
 """
-BigQuery module for DoughZone Analytics Dashboard.
-Handles BigQuery connection, schema creation, and queries.
+BigQuery module for the restaurant analytics project.
+Handles warehouse connection, schema creation, and queries.
 """
 
 import os
@@ -27,7 +27,7 @@ logger = logging.getLogger(__name__)
 class BigQueryManager:
     """Manages BigQuery operations for restaurant data."""
 
-    def __init__(self, project_id: Optional[str] = None, dataset_id: str = "doughzone_analytics"):
+    def __init__(self, project_id: Optional[str] = None, dataset_id: str = "restaurant_analytics_demo"):
         # Try to get project ID from environment or Streamlit secrets
         self.project_id = project_id or os.getenv("GCS_PROJECT_ID")
         credentials = None
@@ -173,6 +173,49 @@ class BigQueryManager:
                 bigquery.SchemaField("sentiment", "STRING"),
                 bigquery.SchemaField("category", "STRING"),
             ],
+            "instagram_profile_snapshots": [
+                bigquery.SchemaField("account_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("account_label", "STRING"),
+                bigquery.SchemaField("username", "STRING"),
+                bigquery.SchemaField("name", "STRING"),
+                bigquery.SchemaField("biography", "STRING"),
+                bigquery.SchemaField("account_type", "STRING"),
+                bigquery.SchemaField("media_count", "INTEGER"),
+                bigquery.SchemaField("followers_count", "INTEGER"),
+                bigquery.SchemaField("follows_count", "INTEGER"),
+                bigquery.SchemaField("profile_picture_url", "STRING"),
+                bigquery.SchemaField("local_timezone", "STRING"),
+                bigquery.SchemaField("snapshot_at", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("snapshot_date", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("source_run_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("created_at", "TIMESTAMP", default_value_expression="CURRENT_TIMESTAMP()"),
+            ],
+            "instagram_media_snapshots": [
+                bigquery.SchemaField("account_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("account_label", "STRING"),
+                bigquery.SchemaField("username", "STRING"),
+                bigquery.SchemaField("media_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("caption", "STRING"),
+                bigquery.SchemaField("media_type", "STRING"),
+                bigquery.SchemaField("media_product_type", "STRING"),
+                bigquery.SchemaField("permalink", "STRING"),
+                bigquery.SchemaField("media_url", "STRING"),
+                bigquery.SchemaField("thumbnail_url", "STRING"),
+                bigquery.SchemaField("posted_at_raw", "STRING"),
+                bigquery.SchemaField("posted_at_utc", "STRING"),
+                bigquery.SchemaField("posted_date_utc", "STRING"),
+                bigquery.SchemaField("likes", "INTEGER"),
+                bigquery.SchemaField("comments_count", "INTEGER"),
+                bigquery.SchemaField("views", "INTEGER"),
+                bigquery.SchemaField("reach", "INTEGER"),
+                bigquery.SchemaField("saved", "INTEGER"),
+                bigquery.SchemaField("shares", "INTEGER"),
+                bigquery.SchemaField("total_interactions", "INTEGER"),
+                bigquery.SchemaField("children_json", "STRING"),
+                bigquery.SchemaField("child_count", "INTEGER"),
+                bigquery.SchemaField("source_run_id", "STRING", mode="REQUIRED"),
+                bigquery.SchemaField("created_at", "TIMESTAMP", default_value_expression="CURRENT_TIMESTAMP()"),
+            ],
              "time_entries": [
                 bigquery.SchemaField("location_id", "STRING"),
                 bigquery.SchemaField("business_date", "STRING"),
@@ -215,6 +258,12 @@ class BigQueryManager:
             # customer_orders: cluster by email for segmentation query performance
             if table_name == "customer_orders":
                 table.clustering_fields = ["customer_email", "business_date"]
+
+            if table_name == "instagram_profile_snapshots":
+                table.clustering_fields = ["account_id", "snapshot_date"]
+
+            if table_name == "instagram_media_snapshots":
+                table.clustering_fields = ["account_id", "posted_date_utc"]
 
             try:
                 self.client.get_table(table_ref)

@@ -47,7 +47,7 @@ class DataImporter:
             self.bq.create_schema()
 
             # Load valid location GUIDs from the scheduler-maintained cache
-            loc_path = Path(__file__).parent.parent / "toast_api" / "location_names.json"
+            loc_path = Path(__file__).parent.parent / "integrations" / "toast_api" / "location_names.json"
             if loc_path.exists():
                 import json
                 valid_location_ids = set(json.loads(loc_path.read_text()).keys())

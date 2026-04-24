@@ -7,14 +7,14 @@ you have access to, saving JSON locally for inspection.
 
 Usage:
     # Discover all restaurants your credentials can access:
-    python -m toast_api.test_pull --discover
+    python3 -m scripts.test_pull --discover
 
     # Pull data for a specific restaurant:
-    python -m toast_api.test_pull --restaurant-id <GUID> --start-date 2025-02-09 --end-date 2025-02-09
+    python3 -m scripts.test_pull --restaurant-id <GUID> --start-date 2025-02-09 --end-date 2025-02-09
 
     # Pull only orders or menus:
-    python -m toast_api.test_pull --restaurant-id <GUID> --orders-only
-    python -m toast_api.test_pull --restaurant-id <GUID> --menus-only
+    python3 -m scripts.test_pull --restaurant-id <GUID> --orders-only
+    python3 -m scripts.test_pull --restaurant-id <GUID> --menus-only
 """
 
 import argparse
@@ -27,8 +27,8 @@ from pathlib import Path
 
 import requests
 
-from toast_api.client import ToastAPIClient
-from toast_api.field_mapping import print_mapping_comparison
+from integrations.toast_api.client import ToastAPIClient
+from integrations.toast_api.field_mapping import print_mapping_comparison
 
 # Configure logging
 logging.basicConfig(
@@ -76,7 +76,7 @@ def run_discover(client: ToastAPIClient):
     print(f"\nTo pull data for a restaurant, run:")
     if restaurants:
         sample_guid = restaurants[0].get("guid", restaurants[0].get("restaurantGuid", "<GUID>"))
-        print(f"  python -m toast_api.test_pull --restaurant-id {sample_guid} --start-date 2025-02-09 --end-date 2025-02-09")
+        print(f"  python3 -m scripts.test_pull --restaurant-id {sample_guid} --start-date 2025-02-09 --end-date 2025-02-09")
 
 
 def summarize_orders(orders: list):

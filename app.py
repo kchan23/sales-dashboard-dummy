@@ -1,6 +1,5 @@
 """
-DoughZone Analytics Dashboard - Streamlit Application
-Reads from SQLite database and displays interactive analytics.
+Restaurant Analytics Demo - Streamlit application.
 """
 
 import streamlit as st
@@ -9,14 +8,10 @@ import numpy as np
 import statsmodels.api as sm
 from sklearn.preprocessing import StandardScaler
 from datetime import datetime, timedelta
+from typing import TYPE_CHECKING
 import plotly.express as px
 import plotly.graph_objects as go
-from database.bigquery import BigQueryManager, get_bq_manager
-from query.llm_generator import LLMQueryGenerator, AmbiguityResult
-from query.validator import SQLValidator
-from automation.gcs_import_worker import GCSImportWorker, load_credentials_from_env
-from toast_api.client import ToastAPIClient
-from toast_api.scheduler import pull_restaurant
+from database.bigquery import get_bq_manager
 import json
 import logging
 import os
@@ -29,10 +24,13 @@ from pathlib import Path
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
+if TYPE_CHECKING:
+    from query.llm_generator import AmbiguityResult
+
 # Page configuration
 st.set_page_config(
-    page_title="DoughZone Analytics",
-    page_icon="🥟",
+    page_title="Restaurant Analytics Demo",
+    page_icon="📊",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -140,7 +138,7 @@ st.markdown("""
 @st.cache_resource
 def get_db():
     """Get database connection (cached for entire session)."""
-    if os.getenv("DEMO_MODE", "false").lower() == "true":
+    if is_demo_mode():
         from database.demo_db import DemoDBManager
         return DemoDBManager()
     try:
@@ -161,6 +159,11 @@ def format_currency(value):
 def format_number(value):
     """Format value as number."""
     return f"{value:,.0f}" if value else "0"
+
+
+def is_demo_mode() -> bool:
+    """Default to demo mode unless explicitly disabled."""
+    return os.getenv("DEMO_MODE", "true").lower() != "false"
 
 
 def format_date_display(date_str):
@@ -337,7 +340,7 @@ def _render_alerts(sales_data: pd.DataFrame, inventory_data: pd.DataFrame, labor
         st.success("No alerts for this period")
 
 
-def show_clarification_ui(ambiguity_result: AmbiguityResult):
+def show_clarification_ui(ambiguity_result: "AmbiguityResult"):
     """
     Display clarification options and collect user selection.
 
@@ -408,41 +411,69 @@ def _short_location_name(full_name: str) -> str:
     return full_name
 
 
+def _friendly_location_label(location_id: str, index: int) -> str:
+    """Return a presentation-safe label for demo and unknown locations."""
+    if location_id.startswith("demo_"):
+        return location_id.replace("demo_", "").replace("_", " ").title()
+    return f"Location {index}"
+
+
 def load_location_map(db, toast_client=None) -> dict:
     """Return {uuid: display_name} for all known locations.
 
     Priority: cached JSON file → live Toast API → anonymized fallback.
     Never exposes raw UUIDs to the UI.
     """
-    cache_path = Path("toast_api/location_names.json")
+    known_ids = sorted(db.get_locations())
+    if not known_ids:
+        return {}
+
+    fallback_map = {
+        uid: _friendly_location_label(uid, i + 1)
+        for i, uid in enumerate(known_ids)
+    }
+    cache_path = Path("integrations/toast_api/location_names.json")
     if cache_path.exists():
         try:
             with open(cache_path) as f:
-                return {k: _short_location_name(v) for k, v in json.load(f).items()}
+                cached = json.load(f)
+            filtered = {
+                k: _short_location_name(v)
+                for k, v in cached.items()
+                if k in fallback_map and v
+            }
+            if len(filtered) == len(known_ids):
+                return filtered
+            if filtered:
+                merged = fallback_map.copy()
+                merged.update(filtered)
+                return merged
         except Exception:
             pass
 
     if toast_client:
         try:
             restaurants = toast_client.discover_restaurants()
-            return {
+            api_map = {
                 r.get("restaurantGuid", ""): _short_location_name(
                     r.get("locationName", r.get("restaurantName", ""))
                 )
                 for r in restaurants
-                if r.get("restaurantGuid")
+                if r.get("restaurantGuid") in fallback_map
             }
+            if api_map:
+                merged = fallback_map.copy()
+                merged.update(api_map)
+                return merged
         except Exception:
             pass
 
-    # Last resort: anonymize — never show raw UUIDs
-    uuids = db.get_locations()
-    return {uid: f"Location {i + 1}" for i, uid in enumerate(sorted(uuids))}
+    return fallback_map
 
 
 def main():
     # Header
-    st.title("🥟 DoughZone Analytics Dashboard")
+    st.title("Restaurant Analytics Demo")
 
     # Database connection
     db = get_db()
@@ -451,17 +482,18 @@ def main():
         st.error("Failed to initialize the database connection. The app cannot continue.")
         return
 
-    if os.getenv("DEMO_MODE", "false").lower() == "true":
-        st.info("**Demo Mode** — All data shown is synthetic and does not represent real business information.")
+    _demo_mode = is_demo_mode()
+    if _demo_mode:
+        st.info("**Demo Mode** — All data shown is synthetic and safe for presentation. No live systems are queried.")
 
     # Sidebar - Location and Date Selection
-    st.sidebar.header("📊 Dashboard Controls")
+    st.sidebar.header("Dashboard Controls")
 
     # Load location name map (file cache → API → anonymized fallback)
     try:
         location_map = load_location_map(db)  # {uuid: display_name}
         if not location_map:
-            st.warning("No locations found in the database. Data might be missing or the import worker hasn't run yet. Check GCS for data files.")
+            st.warning("No locations found in the active dataset.")
             return
     except Exception as e:
         st.error(f"Error loading locations: {e}")
@@ -526,90 +558,103 @@ def main():
     if not any(start_date <= d <= end_date for d in available_dates):
         st.sidebar.warning("No data found in the selected range. Try expanding your date range.")
 
-    # Data Sync Section
-    st.sidebar.divider()
-    with st.sidebar.expander("🔄 Data Sync", expanded=False):
-        st.caption("Import pending files from GCS to BigQuery")
-        
-        # Initialize last_sync_time if not present
-        if 'last_sync_time' not in st.session_state:
-            st.session_state.last_sync_time = 0
-            
-        current_time = time.time()
-        time_since_last_sync = current_time - st.session_state.last_sync_time
-        cooldown_seconds = 60
-        
-        if time_since_last_sync < cooldown_seconds:
-            remaining = int(cooldown_seconds - time_since_last_sync)
-            st.button(f"Wait {remaining}s", disabled=True, width='stretch', key="sync_btn_disabled")
-        else:
-            if st.button("Sync Now", width='stretch', key="sync_btn_active"):
-                st.session_state.last_sync_time = current_time
-                with st.spinner("Syncing data..."):
-                    try:
-                        creds = load_credentials_from_env()
-                        if not creds:
-                            st.error("Missing/invalid credentials")
-                        else:
-                            worker = GCSImportWorker(creds['bucket_name'], creds['credentials_path'])
-                            stats = worker.process_new_files()
-                            
-                            if stats['status'] == 'success':
-                                if stats['files_found'] > 0:
-                                    st.success(stats['message'])
+    if not _demo_mode:
+        # BigQuery Architecture panel
+        st.sidebar.divider()
+        with st.sidebar.expander("Warehouse Architecture", expanded=False):
+            st.markdown("""
+**Production** connects to a cloud data warehouse via a read-only service account.
+
+The generated SQL shown in the Q&A section matches the production query pattern.
+            """)
+
+        # Data Sync Section
+        st.sidebar.divider()
+        with st.sidebar.expander("Data Sync", expanded=False):
+            st.caption("Import pending files from cloud storage")
+
+            if 'last_sync_time' not in st.session_state:
+                st.session_state.last_sync_time = 0
+
+            current_time = time.time()
+            time_since_last_sync = current_time - st.session_state.last_sync_time
+            cooldown_seconds = 60
+
+            if time_since_last_sync < cooldown_seconds:
+                remaining = int(cooldown_seconds - time_since_last_sync)
+                st.button(f"Wait {remaining}s", disabled=True, width='stretch', key="sync_btn_disabled")
+            else:
+                if st.button("Sync Now", width='stretch', key="sync_btn_active"):
+                    st.session_state.last_sync_time = current_time
+                    with st.spinner("Syncing data..."):
+                        try:
+                            from automation.gcs_import_worker import GCSImportWorker, load_credentials_from_env
+
+                            creds = load_credentials_from_env()
+                            if not creds:
+                                st.error("Missing or invalid credentials")
+                            else:
+                                worker = GCSImportWorker(creds['bucket_name'], creds['credentials_path'])
+                                stats = worker.process_new_files()
+
+                                if stats['status'] == 'success':
+                                    if stats['files_found'] > 0:
+                                        st.success(stats['message'])
+                                        time.sleep(1)
+                                        st.rerun()
+                                    else:
+                                        st.info("No new files found")
+                                else:
+                                    st.error(f"Sync failed: {stats['message']}")
+                        except Exception as e:
+                            st.error(f"Error: {e}")
+
+        with st.sidebar.expander("Source API Sync", expanded=False):
+            st.caption("Pull latest data directly from the source API")
+
+            if 'last_toast_sync_time' not in st.session_state:
+                st.session_state.last_toast_sync_time = 0
+
+            toast_current_time = time.time()
+            toast_time_since = toast_current_time - st.session_state.last_toast_sync_time
+            toast_cooldown = 120
+
+            if toast_time_since < toast_cooldown:
+                remaining = int(toast_cooldown - toast_time_since)
+                st.button(f"Wait {remaining}s", disabled=True, width='stretch', key="toast_btn_disabled")
+            else:
+                if st.button("Pull from Source API", width='stretch', key="toast_btn_active"):
+                    st.session_state.last_toast_sync_time = toast_current_time
+                    with st.spinner("Pulling from source API... this may take a few minutes."):
+                        try:
+                            from integrations.toast_api.client import ToastAPIClient
+                            from integrations.toast_api.scheduler import pull_restaurant
+
+                            toast_client = ToastAPIClient()
+                            restaurants = toast_client.discover_restaurants()
+                            if not restaurants:
+                                st.warning("No accessible locations found.")
+                            else:
+                                total_orders = 0
+                                for r in restaurants:
+                                    guid = r.get("restaurantGuid", r.get("guid", ""))
+                                    name = r.get("restaurantName", r.get("name", guid))
+                                    result = pull_restaurant(
+                                        client=toast_client,
+                                        bq=db,
+                                        restaurant_guid=guid,
+                                        restaurant_name=name,
+                                        interval_days=30,
+                                    )
+                                    total_orders += result.get("orders", 0)
+                                if total_orders > 0:
+                                    st.success(f"Pulled {total_orders:,} orders")
                                     time.sleep(1)
                                     st.rerun()
                                 else:
-                                    st.info("No new files found")
-                            else:
-                                st.error(f"Sync failed: {stats['message']}")
-                    except Exception as e:
-                        st.error(f"Error: {e}")
-
-    # Toast API Sync Section
-    with st.sidebar.expander("🍞 Toast API Sync", expanded=False):
-        st.caption("Pull latest data directly from Toast API into BigQuery")
-
-        if 'last_toast_sync_time' not in st.session_state:
-            st.session_state.last_toast_sync_time = 0
-
-        toast_current_time = time.time()
-        toast_time_since = toast_current_time - st.session_state.last_toast_sync_time
-        toast_cooldown = 120  # 2-minute cooldown (pulls can take ~5 min)
-
-        if toast_time_since < toast_cooldown:
-            remaining = int(toast_cooldown - toast_time_since)
-            st.button(f"Wait {remaining}s", disabled=True, width='stretch', key="toast_btn_disabled")
-        else:
-            if st.button("Pull from Toast API", width='stretch', key="toast_btn_active"):
-                st.session_state.last_toast_sync_time = toast_current_time
-                with st.spinner("Pulling from Toast API... this may take a few minutes."):
-                    try:
-                        toast_client = ToastAPIClient()
-                        restaurants = toast_client.discover_restaurants()
-                        if not restaurants:
-                            st.warning("No accessible Toast restaurants found.")
-                        else:
-                            total_orders = 0
-                            for r in restaurants:
-                                guid = r.get("restaurantGuid", r.get("guid", ""))
-                                name = r.get("restaurantName", r.get("name", guid))
-                                result = pull_restaurant(
-                                    client=toast_client,
-                                    bq=db,
-                                    restaurant_guid=guid,
-                                    restaurant_name=name,
-                                    interval_days=30,
-                                )
-                                total_orders += result.get("orders", 0)
-                            if total_orders > 0:
-                                st.success(f"Pulled {total_orders:,} orders from Toast API")
-                                time.sleep(1)
-                                st.rerun()
-                            else:
-                                st.info("Already up to date — no new data to pull.")
-                    except Exception as e:
-                        st.error(f"Toast API error: {e}")
+                                    st.info("Already up to date.")
+                        except Exception as e:
+                            st.error(f"Source API error: {e}")
 
     # Initialize session state for clarification workflow
     if "clarification_pending" not in st.session_state:
@@ -653,29 +698,28 @@ def main():
     ])
 
     # TAB 1: OVERVIEW (with LLM Ask feature at top)
-    _demo_mode = os.getenv("DEMO_MODE", "false").lower() == "true"
     with tab_overview:
         # Part 1: LLM "Ask a Question" section
         st.subheader("Data Exploration Q&A Tool")
         if _demo_mode:
-            st.info("The Q&A tool is not available in demo mode.")
+            st.info("The Q&A tool is disabled in the public demo build.")
         else:
             st.markdown("Ask your question about the data in plain English, and we'll generate the SQL query to answer it.")
 
-        user_question = st.text_input(
-            "Ask a question about your data (e.g., 'What are the top 10 items by revenue?')",
-            placeholder="e.g., 'Show me daily revenue trends', 'What's the average order value?'",
-            key="user_question",
-            on_change=lambda: st.session_state.update(ask_triggered=True) if st.session_state.get("user_question") else None
-        )
+        user_question = ""
+        ask_triggered = False
+        if not _demo_mode:
+            user_question = st.text_input(
+                "Ask a question about your data (e.g., 'What are the top 10 items by revenue?')",
+                placeholder="e.g., 'Show me daily revenue trends', 'What's the average order value?'",
+                key="user_question",
+                on_change=lambda: st.session_state.update(ask_triggered=True) if st.session_state.get("user_question") else None
+            )
 
-        ask_button = st.button("🔍 Ask", width='stretch')
-
-        # Check if query should be triggered (either button click or Enter key)
-        # In demo mode, never trigger so no LLM / BigQuery calls are attempted
-        ask_triggered = (not _demo_mode) and (ask_button or st.session_state.get("ask_triggered", False))
-        if ask_triggered:
-            st.session_state.ask_triggered = False
+            ask_button = st.button("Ask", width='stretch')
+            ask_triggered = ask_button or st.session_state.get("ask_triggered", False)
+            if ask_triggered:
+                st.session_state.ask_triggered = False
 
         # Check for pending clarification FIRST (before ask_triggered check)
         if st.session_state.clarification_pending:
@@ -695,6 +739,9 @@ def main():
                 if query_to_process:
                     with st.spinner("🔄 Generating query with your clarification..."):
                         try:
+                            from query.llm_generator import LLMQueryGenerator
+                            from query.validator import SQLValidator
+
                             api_key = st.secrets.get("OPENROUTER_API_KEY") if "OPENROUTER_API_KEY" in st.secrets else os.getenv("OPENROUTER_API_KEY")
 
                             if not api_key:
@@ -702,7 +749,7 @@ def main():
                                 st.stop()
 
                             query_gen = LLMQueryGenerator(db, api_key)
-                            validator = SQLValidator(db.client)
+                            validator = SQLValidator(getattr(db, "client", None))
 
                             query, description, params = query_gen.generate_query(
                                 query_to_process,
@@ -756,6 +803,9 @@ def main():
 
             with st.spinner("🔄 Understanding your question..."):
                 try:
+                    from query.llm_generator import LLMQueryGenerator
+                    from query.validator import SQLValidator
+
                     api_key = st.secrets.get("OPENROUTER_API_KEY") if "OPENROUTER_API_KEY" in st.secrets else os.getenv("OPENROUTER_API_KEY")
 
                     if not api_key:
@@ -764,7 +814,7 @@ def main():
                         st.stop()
 
                     query_gen = LLMQueryGenerator(db, api_key)
-                    validator = SQLValidator(db.client)
+                    validator = SQLValidator(getattr(db, "client", None))
 
                     ambiguity_result = query_gen.detect_ambiguity(user_question)
 
@@ -1394,9 +1444,10 @@ def main():
 
     # Footer
     st.divider()
+    footer_source = "Synthetic demo dataset" if _demo_mode else "Cloud warehouse"
     st.markdown("""
         <div style='text-align: center; color: gray; font-size: 12px;'>
-            Data Source: Google BigQuery | Last Updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
+            Data Source: """ + footer_source + """ | Last Updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
         </div>
     """, unsafe_allow_html=True)
 

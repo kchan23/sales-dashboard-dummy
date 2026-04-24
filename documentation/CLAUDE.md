@@ -16,7 +16,7 @@ This file provides guidance to Claude Code when working with this repository.
 
 ## Project Overview
 
-**DoughZone Analytics Dashboard** — A Streamlit-based analytics dashboard for the DoughZone pizza restaurant chain. Ingests live POS data from the Toast API, stores it in Google BigQuery, and provides interactive dashboards with AI-powered natural language querying.
+**Restaurant Analytics Demo** — A Streamlit-based analytics dashboard for restaurant operations. This public presentation repo should use synthetic data only.
 
 Two restaurant locations: South San Jose and Cupertino.
 
@@ -27,8 +27,9 @@ Two restaurant locations: South San Jose and Cupertino.
 ### Current Data Pipeline
 ```
 Toast API
-  └─ toast_api/scheduler.py       ← incremental daily pulls, writes raw rows
+  └─ integrations/toast_api/scheduler.py       ← incremental daily pulls, writes raw rows
        └─ BigQuery raw tables     ← orders, order_items, payments, customer_orders, inventory
+            ├─ Instagram snapshots ← integrations/instagram_api/scheduler.py
             └─ BigQuery views     ← *_clean views with type casts, dedup, derived columns
                  ├─ app.py        ← Streamlit dashboard (reads from views)
                  ├─ scripts/export_to_parquet.py  ← offline analysis exports
@@ -42,9 +43,12 @@ Toast API
 | `app.py` | Main Streamlit dashboard |
 | `database/bigquery.py` | `BigQueryManager` — all BQ operations; analytics methods cached with `@st.cache_data(ttl=3600)` |
 | `database/create_views.py` | Creates/replaces all BigQuery views |
-| `toast_api/client.py` | Toast API OAuth client |
-| `toast_api/scheduler.py` | Incremental data puller (runs daily or via backfill) |
-| `toast_api/transformer.py` | Transforms raw API JSON → BigQuery row dicts |
+| `integrations/toast_api/client.py` | Toast API OAuth client |
+| `integrations/toast_api/scheduler.py` | Incremental Toast data puller |
+| `integrations/toast_api/transformer.py` | Transforms Toast JSON → BigQuery row dicts |
+| `integrations/instagram_api/client.py` | Instagram Graph API client helpers |
+| `integrations/instagram_api/scheduler.py` | Instagram snapshot sync into BigQuery |
+| `integrations/instagram_api/transformer.py` | Transforms Instagram payloads into snapshot rows |
 | `scripts/test_pull.py` | Diagnostic test pull — prints to stdout, NO BigQuery writes |
 | `scripts/export_to_parquet.py` | Exports BigQuery views to `exports/*.parquet` |
 | `analysis/exploratory_methods.ipynb` | Jupyter notebook: time-series, OLS, K-Means, customer analysis |
@@ -58,14 +62,20 @@ Toast API
 | Location A | `<your-restaurant-guid-1>` |
 | Location B | `<your-restaurant-guid-2>` |
 
-GUIDs are also stored in `toast_api/location_names.json` (auto-updated on each scheduler run).
+GUIDs are also stored in `integrations/toast_api/location_names.json` (auto-updated on each scheduler run).
 Replace placeholder GUIDs with your actual restaurant GUIDs from the Toast API.
 
 ---
 
 ## Script Execution
 
-**All scripts use relative imports and MUST be run as modules from the project root:**
+**Default demo run requires no credentials:**
+
+```bash
+streamlit run app.py
+```
+
+**Live scripts use relative imports and should be run from the project root:**
 
 ```bash
 cd /home/kchan23/cpp/capstone/sales-dashboard-app
@@ -73,14 +83,17 @@ cd /home/kchan23/cpp/capstone/sales-dashboard-app
 # Diagnostic test pull (no BigQuery writes)
 python3 -m scripts.test_pull --restaurant-id <GUID> --start-date 2026-03-01 --end-date 2026-03-01
 
-# Full incremental scheduler pull (writes to BigQuery)
-python3 -m toast_api.scheduler
+# Full incremental Toast scheduler pull (writes to BigQuery)
+python3 -m integrations.toast_api.scheduler
+
+# Instagram snapshot sync (writes to BigQuery)
+python3 -m integrations.instagram_api.scheduler
 
 # Backfill for a specific date range
-python3 -m toast_api.scheduler --start-date 20241231 --end-date 20260308
+python3 -m integrations.toast_api.scheduler --start-date 20241231 --end-date 20260308
 
 # Backfill customer_orders ONLY (avoids duplicating other tables)
-python3 -m toast_api.scheduler --start-date 20241231 --end-date 20260308 --customer-only
+python3 -m integrations.toast_api.scheduler --start-date 20241231 --end-date 20260308 --customer-only
 
 # Create/replace BigQuery views
 python3 -m database.create_views
@@ -92,7 +105,7 @@ python3 -m scripts.export_to_parquet
 streamlit run app.py
 ```
 
-Running `python3 scripts/test_pull.py` directly will fail with `ModuleNotFoundError: No module named 'toast_api'`.
+Running `python3 scripts/test_pull.py` directly will fail with `ModuleNotFoundError: No module named 'integrations.toast_api'`.
 
 ---
 
@@ -106,6 +119,8 @@ Running `python3 scripts/test_pull.py` directly will fail with `ModuleNotFoundEr
 | `payments` | One row per payment transaction |
 | `customer_orders` | Customer PII per check (requires `guest.pi:read` scope) |
 | `inventory` | Menu item snapshot from menus API (NOT real stock levels) |
+| `instagram_profile_snapshots` | Latest profile-level Instagram account snapshots |
+| `instagram_media_snapshots` | Instagram post/media snapshots and engagement metrics |
 | `import_log` | Records of all scheduler runs |
 
 ### Views (analytics-ready, deduped)
@@ -118,6 +133,8 @@ Running `python3 scripts/test_pull.py` directly will fail with `ModuleNotFoundEr
 | `item_performance` | Aggregated by item + location + date |
 | `menu_canonical_map` | Item name normalization mapping; includes `category` column sourced from `inventory` |
 | `customer_orders_masked` | PII replaced with SHA256 hash (`customer_id`); safe for analysis |
+| `instagram_profiles_current` | Latest Instagram profile snapshot per account |
+| `instagram_media_current` | Latest Instagram media snapshot per post/media ID |
 
 `customer_orders_clean` was intentionally removed — it exposed raw PII (email, phone, name) and was unused by the analytics pipeline. Use `customer_orders_masked` for all customer analysis.
 
@@ -170,7 +187,7 @@ Discovered during exploratory analysis — discuss with client before building f
 
 ## Common Issues
 
-### `ModuleNotFoundError: No module named 'toast_api'`
+### `ModuleNotFoundError: No module named 'integrations.toast_api'`
 Run scripts as modules from project root: `python3 -m scripts.test_pull ...`
 
 ### `customer_orders` is empty

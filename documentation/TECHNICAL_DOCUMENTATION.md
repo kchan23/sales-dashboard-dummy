@@ -1,7 +1,7 @@
-# DoughZone Analytics Dashboard
+# Restaurant Analytics Demo
 ## Technical Documentation
 
-DoughZone Capstone Project  
+Restaurant Analytics Capstone Project  
 California State Polytechnic University, Pomona  
 Generated: January 23, 2026
 
@@ -14,7 +14,7 @@ Generated: January 23, 2026
 4. Workflow & Data Pipeline  
 5. AI Prompt Engineering  
 6. API Integrations  
-7. Maintenance Guide for Doughzone  
+7. Maintenance Guide  
 8. Testing & Evaluation Results  
 9. Demo Walkthrough  
 10. Troubleshooting Guide  
@@ -25,23 +25,24 @@ Generated: January 23, 2026
 # 1. Executive Summary
 
 ## 1.1 Project Overview
-The DoughZone Analytics Dashboard is a Streamlit-based analytics application for restaurant operations. It ingests POS exports (CSV/Excel), stores them in BigQuery, and provides interactive views of revenue, orders, menu performance, and inventory status. It also includes a natural-language query feature that converts user questions into SQL and executes them against BigQuery.
+This Streamlit-based analytics application supports restaurant operations analysis. Presentation mode uses synthetic demo data and avoids live system dependencies.
 
 ## 1.2 Key Features
 - Interactive sales analytics (revenue, orders, tips, discounts)
 - Menu performance insights (top items by revenue or count)
 - Inventory status tracking with low/critical thresholds
 - Location and date range filtering
-- "Ask Data a Question" interface for natural-language analytics
-- Automated data ingestion via GCS import worker
+- Presentation-safe demo mode with synthetic data
+- Optional live Toast and Instagram ingestion paths for non-demo use
 
 ## 1.3 Technology Stack
 | Component | Technology |
 | --- | --- |
 | Frontend | Streamlit |
 | Backend | Python 3.8+ |
-| Storage | Google BigQuery |
-| Cloud Storage | Google Cloud Storage (GCS) |
+| Default Storage | Local parquet demo files |
+| Optional Live Storage | Google BigQuery |
+| Optional Live Cloud Storage | Google Cloud Storage (GCS) |
 | Visualization | Plotly |
 | Data Processing | Pandas, OpenPyXL |
 | Scheduling | schedule |
@@ -73,7 +74,7 @@ This system differs from the Social Media Analytics Dashboard reference in sever
               ▼
 ┌────────────────────────────┐
 │     BigQuery Dataset         │
-│   doughzone_analytics        │
+│ restaurant_analytics_demo    │
 └────────────────────────────┘
               ▲
               │
@@ -90,19 +91,20 @@ This system differs from the Social Media Analytics Dashboard reference in sever
 ```
 
 ## 2.2 Application Layers
-- **UI Layer**: `app.py` renders the dashboard and query interface.
-- **Data Access Layer**: `database/bigquery.py` owns dataset creation and analytics queries.
-- **Data Ingestion Layer**: `import_data.py` and `automation/gcs_import_worker.py` stream data into BigQuery.
+- **UI Layer**: `app.py` renders the dashboard and defaults to demo mode.
+- **Default Data Access Layer**: `database/demo_db.py` serves bundled synthetic parquet data.
+- **Optional Live Data Access Layer**: `database/bigquery.py` owns dataset creation and analytics queries.
+- **Optional Live Integration Layer**: `integrations/toast_api/` and `integrations/instagram_api/` handle external ingestion.
 
 ## 2.3 Storage Model
-- **BigQuery Dataset**: `doughzone_analytics`
-- **Tables**: `orders`, `order_items`, `payments`, `inventory`, `reviews`, `time_entries`, `import_log`
+- **BigQuery Dataset**: `restaurant_analytics_demo`
+- **Tables**: `orders`, `order_items`, `payments`, `inventory`, `reviews`, `time_entries`, `import_log`, `instagram_profile_snapshots`, `instagram_media_snapshots`
 - **Clustering**: `location_id`, `business_date` (per table with business_date)
 
 ## 2.4 Security & Credentials
-- Uses GCP service account credentials (JSON key file).
+- Default demo mode requires no external credentials.
+- Live mode uses GCP service account credentials and API credentials.
 - Supports `.env` and Streamlit secrets (`GCS` block).
-- The key file (`doughzone-gcs-key.json`) should never be committed.
 
 ---
 

@@ -1,6 +1,6 @@
-# Data Dictionary — DoughZone Analytics
+# Data Dictionary — Restaurant Analytics Demo
 
-**Dataset:** `doughzone_analytics` (BigQuery)
+**Dataset:** `restaurant_analytics_demo` (BigQuery)
 **Data source:** Toast POS API (REST v2), CSV/Excel file imports via GCS
 **Pipeline:** Toast API → BigQuery raw tables → derived views → Parquet exports
 
@@ -167,7 +167,7 @@ These are the primary analytics-ready surfaces used by the dashboard. All raw ta
 
 ## Toast API Field Lineage
 
-How Toast API v2 response fields map to BigQuery raw table columns. Defined in [`toast_api/field_mapping.py`](../toast_api/field_mapping.py).
+How Toast API v2 response fields map to BigQuery raw table columns. Defined in [`integrations/toast_api/field_mapping.py`](../integrations/toast_api/field_mapping.py).
 
 ### Orders — `/orders/v2/ordersBulk`
 

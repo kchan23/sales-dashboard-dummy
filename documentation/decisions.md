@@ -45,7 +45,7 @@ Key technical and product decisions made during development, with rationale. Con
 ### Revenue double-counting bug (fixed March 2026)
 **Decision:** `database/bigquery.py:get_sales_summary()` now queries `orders_clean` instead of the raw `orders` table.
 
-**Why:** The raw `orders` table receives inserts from two sources — CSV/Excel file imports (`database/import_data.py`) and scheduled Toast API pulls (`toast_api/scheduler.py`). Because `stream_rows()` is a plain INSERT with no upsert logic, the same order GUID can appear multiple times in the raw table. Querying it directly for revenue totals caused gross double-counting (observed: ~$2M reported for 3 months across 2 locations). `orders_clean` deduplicates on `order_guid` via `ROW_NUMBER() OVER (PARTITION BY order_guid ORDER BY created_at)`, producing accurate totals.
+**Why:** The raw `orders` table receives inserts from two sources — CSV/Excel file imports (`database/import_data.py`) and scheduled Toast API pulls (`integrations/toast_api/scheduler.py`). Because `stream_rows()` is a plain INSERT with no upsert logic, the same order GUID can appear multiple times in the raw table. Querying it directly for revenue totals caused gross double-counting (observed: ~$2M reported for 3 months across 2 locations). `orders_clean` deduplicates on `order_guid` via `ROW_NUMBER() OVER (PARTITION BY order_guid ORDER BY created_at)`, producing accurate totals.
 
 **Schema note:** `orders_clean.business_date` is a `DATE` type (not STRING). The query uses `PARSE_DATE('%Y%m%d', @start_date)` for the WHERE clause and `FORMAT_DATE('%Y%m%d', business_date)` in the SELECT to keep the string format consistent with the rest of the app. `order_category` ('Delivery', 'Dine-In', 'Takeout') replaces raw `order_type` strings in CASE expressions.
 
@@ -61,7 +61,7 @@ Key technical and product decisions made during development, with rationale. Con
 ---
 
 ### `--customer-only` flag added to scheduler
-**Decision:** `toast_api/scheduler.py` has a `--customer-only` CLI flag that fetches orders from the API but only writes to the `customer_orders` table (skips orders, order_items, payments, menus).
+**Decision:** `integrations/toast_api/scheduler.py` has a `--customer-only` CLI flag that fetches orders from the API but only writes to the `customer_orders` table (skips orders, order_items, payments, menus).
 
 **Why:** The original backfill ran before `transform_customer_orders` was wired into the scheduler. Re-running the full scheduler for the already-pulled date range would have created duplicate rows in all other tables. This flag allows safe single-table backfills.
 
@@ -186,7 +186,7 @@ Key technical and product decisions made during development, with rationale. Con
 ---
 
 ### `location_names.json` cache to avoid raw UUIDs in the UI
-**Decision:** `toast_api/location_names.json` maps restaurant GUIDs to human-readable names. `app.py` reads this file on startup via `load_location_map()`.
+**Decision:** `integrations/toast_api/location_names.json` maps restaurant GUIDs to human-readable names. `app.py` reads this file on startup via `load_location_map()`.
 
 **Why:** Toast restaurant GUIDs are UUIDs (e.g., `xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx`). Displaying them directly in the dashboard is confusing to end users. The cache is auto-updated by `pull_restaurant()` on each successful scheduler run.
 

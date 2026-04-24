@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Query the Toast API and write a GUID → location name map to a text file.
 
-Output: toast_api/restaurant_map.txt
+Output: integrations/toast_api/restaurant_map.txt
 
 Run from project root:
     python3 -m scripts.discover_restaurants
@@ -10,9 +10,9 @@ Run from project root:
 from datetime import datetime
 from pathlib import Path
 
-from toast_api.client import ToastAPIClient
+from integrations.toast_api.client import ToastAPIClient
 
-OUT_PATH = Path(__file__).parent.parent / "toast_api" / "restaurant_map.txt"
+OUT_PATH = Path(__file__).parent.parent / "integrations" / "toast_api" / "restaurant_map.txt"
 
 
 def main():
@@ -20,7 +20,7 @@ def main():
     restaurants = client.discover_restaurants()
 
     lines = [
-        "# DoughZone restaurant GUID -> location name",
+        "# Restaurant GUID -> location name",
         f"# Generated: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}",
         f"# Source: Toast API /partners/v1/restaurants ({len(restaurants)} location(s))",
         "",

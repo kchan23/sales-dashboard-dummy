@@ -112,20 +112,23 @@ VIEWS = {
     "daily_sales": """
         SELECT
             location_id,
-            PARSE_DATE('%Y%m%d', business_date)                                        AS business_date,
-            COUNT(DISTINCT order_guid)                                                 AS order_count,
+            business_date,
+            COUNT(*)                                                                   AS order_count,
             SUM(total_amount)                                                          AS gross_revenue,
             SUM(total_amount - discount_amount)                                        AS net_revenue,
             AVG(total_amount)                                                          AS avg_order_value,
             SUM(tip_amount)                                                            AS total_tips,
             SUM(discount_amount)                                                       AS total_discounts,
-            COUNTIF(UPPER(order_type) LIKE '%DELIVERY%')                               AS delivery_orders,
-            COUNTIF(UPPER(order_type) LIKE '%DINE%')                                   AS dine_in_orders,
             COUNTIF(
-                UPPER(order_type) NOT LIKE '%DELIVERY%'
-                AND UPPER(order_type) NOT LIKE '%DINE%'
+                UPPER(COALESCE(order_category, 'OTHER')) = 'DELIVERY'
+            )                                                                          AS delivery_orders,
+            COUNTIF(
+                UPPER(COALESCE(order_category, 'OTHER')) = 'DINE-IN'
+            )                                                                          AS dine_in_orders,
+            COUNTIF(
+                UPPER(COALESCE(order_category, 'OTHER')) NOT IN ('DELIVERY', 'DINE-IN')
             )                                                                          AS takeout_orders
-        FROM `{dataset}.orders`
+        FROM `{dataset}.orders_clean`
         WHERE total_amount >= 0
           AND location_id IN ({loc_filter})
         GROUP BY location_id, business_date
@@ -171,6 +174,92 @@ VIEWS = {
         FROM `{dataset}.customer_orders`
         WHERE location_id IN ({loc_filter})
     """,
+    "instagram_profiles_current": """
+        WITH ranked AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY account_id
+                    ORDER BY created_at DESC
+                ) AS rn
+            FROM `{dataset}.instagram_profile_snapshots`
+        )
+        SELECT
+            account_id,
+            account_label,
+            username,
+            name,
+            biography,
+            account_type,
+            media_count,
+            followers_count,
+            follows_count,
+            profile_picture_url,
+            local_timezone,
+            COALESCE(
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%Ez', snapshot_at),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%Ez',   snapshot_at),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%z',  snapshot_at),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%z',    snapshot_at),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*SZ',   snapshot_at)
+            ) AS snapshot_at,
+            SAFE.PARSE_DATE('%Y%m%d', snapshot_date) AS snapshot_date,
+            source_run_id,
+            created_at
+        FROM ranked
+        WHERE rn = 1
+    """,
+    "instagram_media_current": """
+        WITH ranked AS (
+            SELECT
+                *,
+                ROW_NUMBER() OVER (
+                    PARTITION BY account_id, media_id
+                    ORDER BY created_at DESC
+                ) AS rn
+            FROM `{dataset}.instagram_media_snapshots`
+        )
+        SELECT
+            account_id,
+            account_label,
+            username,
+            media_id,
+            NULLIF(caption, '') AS caption,
+            NULLIF(media_type, '') AS media_type,
+            NULLIF(media_product_type, '') AS media_product_type,
+            permalink,
+            media_url,
+            thumbnail_url,
+            posted_at_raw,
+            COALESCE(
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%Ez', posted_at_utc),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%Ez',   posted_at_utc),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%z',  posted_at_utc),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%z',    posted_at_utc),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*SZ',   posted_at_utc),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%Ez', posted_at_raw),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%Ez',   posted_at_raw),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*S%z',  posted_at_raw),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%S%z',    posted_at_raw),
+                SAFE.PARSE_TIMESTAMP('%Y-%m-%dT%H:%M:%E*SZ',   posted_at_raw)
+            ) AS posted_at,
+            SAFE.PARSE_DATE('%Y%m%d', posted_date_utc) AS posted_date,
+            likes,
+            comments_count,
+            views,
+            reach,
+            saved,
+            shares,
+            total_interactions,
+            COALESCE(total_interactions, COALESCE(likes, 0) + COALESCE(comments_count, 0)) AS engagement_total,
+            children_json,
+            child_count,
+            UPPER(COALESCE(media_type, '')) = 'CAROUSEL' AS is_carousel,
+            source_run_id,
+            created_at
+        FROM ranked
+        WHERE rn = 1
+    """,
 }
 
 
@@ -179,7 +268,7 @@ def main():
     dataset = bq.dataset_ref
 
     # Load valid location GUIDs from the scheduler-maintained cache
-    loc_path = Path(__file__).parent.parent / "toast_api" / "location_names.json"
+    loc_path = Path(__file__).parent.parent / "integrations" / "toast_api" / "location_names.json"
     valid_guids = list(json.loads(loc_path.read_text()).keys())
     loc_filter = ", ".join(f"'{g}'" for g in valid_guids)
     logger.info(f"Filtering views to {len(valid_guids)} location(s): {valid_guids}")

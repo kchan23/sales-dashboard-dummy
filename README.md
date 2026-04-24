@@ -2,21 +2,44 @@
 
 A data analytics dashboard for Dough Zone that visualizes sales, menu performance, inventory, and customer reviews.
 
+Public-safe Streamlit demo for restaurant operations analytics.
+
+This repository is configured for presentation mode first. The default app path uses synthetic data from `demo_data/` and does not require BigQuery, GCS, Toast, or Instagram credentials.
+
+Run locally:
+
+```bash
+streamlit run app.py
+```
+
+If you need the live integrations, explicitly set `DEMO_MODE=false` and provide the relevant credentials.
+
+## Status
+
+Currently converting from React prototype to Streamlit application for easier deployment and data processing.
+
+## Integration Layout
+
+External data-source code lives under `integrations/`:
+
+- `integrations/toast_api/` for Toast ingestion into BigQuery
+- `integrations/instagram_api/` for Instagram Graph snapshot ingestion into BigQuery
+
+Instagram support is backend-only in this repo. It exists for warehouse completeness and tests, and is not rendered in the Streamlit presentation UI.
+
 ## Project Structure
 
 ```
-dashboard-app/
-├── doughzone_dashboard.tsx    # Original React component (being converted)
-├── data/                       # Restaurant data by location and date
-│   └── [LOCATION_ID]/
-│       └── [YYYYMMDD]/
-│           ├── *.csv          # Sales, order, inventory, timing data
-│           └── *.xlsx         # Reports and detailed data
-├── docs/                       # Project documentation
-│   ├── CLAUDE.md               # Development guide for Claude Code
-│   └── ARCHITECTURE.md         # Architecture overview
-├── README.md                   # This file
-└── .gitignore                  # Git configuration
+sales-dashboard-dummy/
+├── app.py
+├── demo_data/
+├── database/
+├── integrations/
+│   ├── toast_api/
+│   └── instagram_api/
+├── scripts/
+├── documentation/
+└── tests/
 ```
 
 ## Data Structure
@@ -33,19 +56,18 @@ Expected files in each date folder:
 
 - **Sales Analytics**: Revenue and order trends over time
 - **Menu Performance**: Top items by revenue and order count
-- **Inventory Tracking**: Stock levels and reorder alerts
-- **Review Analysis**: Customer sentiment and category breakdowns
-- **Data Upload**: Support for CSV file uploads with flexible column mapping
-- **AI Assistant**: Query-based insights on dashboard data
+- **Customer Analytics**: PII-masked customer metrics for demo-safe presentation
+- **Presentation Mode**: Demo-first runtime with no required external credentials
+- **Optional Live Integrations**: Toast and Instagram ingestion remain available for non-demo use
 
 ## Development
 
 See [docs/CLAUDE.md](./docs/CLAUDE.md) for detailed development guidance and architecture notes.
 
-### Planned: Streamlit Conversion
-- Replace React with Python/Streamlit
-- Read data files from `data/` directory structure
-- Streamlit Cloud deployment
+### Notes
+- The Streamlit UI remains presentation-focused.
+- Live sync paths are optional and stay out of the default demo experience.
+- Instagram snapshot tables/views are included for backend completeness, not for UI display.
 
 ## Git Repository
 
