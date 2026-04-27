@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Setup verification script for DoughZone Dashboard.
+Setup verification script for the restaurant analytics project.
 Checks that all dependencies, files, and data structure are in place for BigQuery.
 """
 

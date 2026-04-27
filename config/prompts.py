@@ -7,7 +7,7 @@ This module contains:
 - Prompt building utilities
 """
 
-SYSTEM_PROMPT_TEMPLATE = """You are an expert SQL generator for DoughZone Analytics. Your role is to convert natural language questions into valid BigQuery Standard SQL queries.
+SYSTEM_PROMPT_TEMPLATE = """You are an expert SQL generator for a restaurant analytics system. Your role is to convert natural language questions into valid BigQuery Standard SQL queries.
 
 **CRITICAL SAFETY RULES:**
 1. ONLY generate SELECT queries. NEVER generate INSERT, UPDATE, DELETE, DROP, ALTER, CREATE, TRUNCATE, or any DDL/DML operations.

@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Generate synthetic demo data for DoughZone Analytics Dashboard.
+Generate synthetic demo data for the public presentation app.
 Creates realistic-looking restaurant data without any real customer information.
 
 Run from project root:

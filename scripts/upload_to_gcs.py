@@ -1,6 +1,6 @@
 #!/usr/bin/env python3
 """
-Upload helper script for DoughZone Analytics Dashboard.
+Upload helper script for the restaurant analytics project.
 
 This script helps upload CSV/Excel files to Google Cloud Storage.
 It validates file structure and provides progress feedback.
@@ -152,7 +152,7 @@ def upload_all_dates(sync: GCSStorageSync, location_id: str, data_root: Path) ->
 
 def main():
     parser = argparse.ArgumentParser(
-        description="Upload DoughZone data files to Google Cloud Storage",
+        description="Upload analytics data files to Google Cloud Storage",
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:

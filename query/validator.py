@@ -31,12 +31,13 @@ class SQLValidator:
         'EXEC', 'EXECUTE', 'CALL', 'DECLARE', 'SET'
     ]
 
-    def __init__(self, bq_client: bigquery.Client):
+    def __init__(self, bq_client: bigquery.Client = None):
         """
         Initialize validator with BigQuery client.
 
         Args:
-            bq_client: Google Cloud BigQuery client for dry-run validation
+            bq_client: Google Cloud BigQuery client for dry-run validation.
+                       Pass None (or omit) to skip the dry-run stage (demo mode).
         """
         self.client = bq_client
 
@@ -204,7 +205,7 @@ class SQLValidator:
 
         return True, None
 
-    def _dry_run(self, sql: str, params: List[bigquery.ScalarQueryParameter]) -> Tuple[bool, Optional[str]]:
+    def _dry_run(self, sql: str, params) -> Tuple[bool, Optional[str]]:
         """
         Execute BigQuery dry-run for syntax validation.
 
@@ -220,6 +221,10 @@ class SQLValidator:
         Returns:
             Tuple of (is_valid, error_message)
         """
+        if self.client is None:
+            logger.info("Skipping BigQuery dry-run (demo mode / no client)")
+            return True, None
+
         try:
             job_config = bigquery.QueryJobConfig()
             job_config.query_parameters = params

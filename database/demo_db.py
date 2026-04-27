@@ -1,12 +1,12 @@
 """
-Demo database manager — reads from local parquet files.
+Demo database manager — reads from local synthetic parquet files.
 
 Drop-in replacement for BigQueryManager when DEMO_MODE=true.
-Implements the same public interface but operates on pre-generated
-synthetic data in demo_data/*.parquet. No GCP credentials required.
+Implements the same public interface but operates on pre-generated synthetic
+data in demo_data/*.parquet. No GCP credentials or live warehouse access.
 
 Generate the parquet files with:
-    python scripts/generate_demo_data.py
+    python3 scripts/generate_demo_data.py
 """
 from __future__ import annotations
 
@@ -20,11 +20,12 @@ logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "demo_data"
 
-DEMO_LOCATIONS = ["demo_downtown", "demo_westside"]
-
 
 class DemoDBManager:
-    """Serves analytics data from pre-generated parquet files."""
+    """Serves analytics data from pre-generated synthetic parquet files."""
+
+    dataset_ref = "demo_local"
+    client = None
 
     def __init__(self):
         self._orders = pd.read_parquet(_DATA_DIR / "orders_clean.parquet")
@@ -33,7 +34,12 @@ class DemoDBManager:
         self._reviews = pd.read_parquet(_DATA_DIR / "reviews.parquet")
         self._labor = pd.read_parquet(_DATA_DIR / "time_entries.parquet")
         self._customers = pd.read_parquet(_DATA_DIR / "customer_orders_masked.parquet")
-        logger.info("DemoDBManager loaded from %s", _DATA_DIR)
+        logger.info(
+            "DemoDBManager loaded synthetic data from %s — %d orders, %d items",
+            _DATA_DIR,
+            len(self._orders),
+            len(self._items),
+        )
 
     # ---- Lifecycle no-ops --------------------------------------------------
 
@@ -46,11 +52,11 @@ class DemoDBManager:
     # ---- Location / Date Helpers -------------------------------------------
 
     def get_locations(self) -> List[str]:
-        return DEMO_LOCATIONS.copy()
+        return sorted(self._orders["location_id"].dropna().unique().tolist())
 
     def get_available_dates(self, location_ids: List[str]) -> List[str]:
         df = self._orders[self._orders["location_id"].isin(location_ids)]
-        return sorted(df["business_date"].unique(), reverse=True)
+        return sorted(df["business_date"].dropna().unique(), reverse=True)
 
     # ---- Analytics Methods -------------------------------------------------
 
@@ -84,7 +90,7 @@ class DemoDBManager:
             .reset_index()
         )
 
-        ot_upper = df["order_type"].str.upper()
+        ot_upper = df["order_type"].fillna("").astype(str).str.upper()
         type_counts = (
             df.assign(
                 delivery=(ot_upper.str.contains("DELIVERY", na=False)).astype(int),
@@ -120,13 +126,22 @@ class DemoDBManager:
                 columns=["item", "category", "order_count", "revenue", "avg_price"]
             )
 
+        if "unit_price" in df.columns:
+            df = df.copy()
+            df["_avg_price_source"] = df["unit_price"]
+        elif "true_unit_price" in df.columns:
+            df = df.copy()
+            df["_avg_price_source"] = df["true_unit_price"]
+        else:
+            df = df.copy()
+            df["_avg_price_source"] = df["prediscount_total"]
         result = (
             df.groupby("item_name")
             .agg(
                 category=("category", "first"),
                 order_count=("quantity", "sum"),
                 revenue=("total_price", "sum"),
-                avg_price=("prediscount_total", "mean"),
+                avg_price=("_avg_price_source", "mean"),
             )
             .reset_index()
             .rename(columns={"item_name": "item"})
@@ -137,7 +152,6 @@ class DemoDBManager:
         self, location_ids: List[str], snapshot_date: str
     ) -> pd.DataFrame:
         df = self._inventory[self._inventory["location_id"].isin(location_ids)]
-        # Fall back to the latest snapshot if the requested date isn't available
         if snapshot_date in df["snapshot_date"].values:
             df = df[df["snapshot_date"] == snapshot_date]
         elif not df.empty:
@@ -205,7 +219,7 @@ class DemoDBManager:
             .reset_index()
         )
 
-        ot_upper = df["order_type"].str.upper()
+        ot_upper = df["order_type"].fillna("").astype(str).str.upper()
         type_counts = (
             df.assign(
                 delivery=(ot_upper.str.contains("DELIVERY", na=False)).astype(int),
@@ -225,7 +239,6 @@ class DemoDBManager:
         )
 
         result = agg.merge(type_counts, on=["location_id", "business_date"])
-        # BigQuery returns DATE type as Python date objects — match that behaviour
         result["business_date"] = pd.to_datetime(
             result["business_date"], format="%Y%m%d"
         ).dt.date
@@ -240,7 +253,6 @@ class DemoDBManager:
             & (self._orders["business_date"] >= start_date)
             & (self._orders["business_date"] <= end_date)
         ]
-        # Drop business_date from cust to avoid column collision on merge
         joined = cust[["customer_id", "location_id", "order_guid"]].merge(
             orders[["order_guid", "total_amount", "business_date"]],
             on="order_guid",
@@ -267,7 +279,7 @@ class DemoDBManager:
             .reset_index()
         )
 
-    # ---- Methods not supported in demo mode --------------------------------
+    # ---- Methods intentionally unsupported in demo mode --------------------
 
     def query_to_df(self, query: str, params=None) -> pd.DataFrame:
         raise NotImplementedError("Custom SQL queries are not available in demo mode.")

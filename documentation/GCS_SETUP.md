@@ -1,6 +1,6 @@
 # Google Cloud Storage Setup Guide
 
-This guide walks you through setting up Google Cloud Storage for the DoughZone Analytics Dashboard.
+This guide walks you through setting up Google Cloud Storage for the restaurant analytics project.
 
 ## Table of Contents
 - [Prerequisites](#prerequisites)
