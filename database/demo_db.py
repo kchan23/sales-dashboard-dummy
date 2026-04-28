@@ -26,6 +26,7 @@ class DemoDBManager:
 
     dataset_ref = "demo_local"
     client = None
+    is_demo = True
 
     def __init__(self):
         self._orders = pd.read_parquet(_DATA_DIR / "orders_clean.parquet")

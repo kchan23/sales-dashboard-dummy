@@ -1,24 +1,24 @@
 # Restaurant Analytics Demo
 ## Technical Documentation
 
-Restaurant Analytics Capstone Project  
-California State Polytechnic University, Pomona  
+Restaurant Analytics Capstone Project
+California State Polytechnic University, Pomona
 Generated: January 23, 2026
 
 ---
 
 ## Table of Contents
-1. Executive Summary  
-2. System Architecture & Design  
-3. Module Documentation  
-4. Workflow & Data Pipeline  
-5. AI Prompt Engineering  
-6. API Integrations  
-7. Maintenance Guide  
-8. Testing & Evaluation Results  
-9. Demo Walkthrough  
-10. Troubleshooting Guide  
-11. Appendix  
+1. Executive Summary
+2. System Architecture & Design
+3. Module Documentation
+4. Workflow & Data Pipeline
+5. AI Prompt Engineering
+6. API Integrations
+7. Maintenance Guide
+8. Testing & Evaluation Results
+9. Demo Walkthrough
+10. Troubleshooting Guide
+11. Appendix
 
 ---
 

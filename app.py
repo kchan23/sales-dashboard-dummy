@@ -139,16 +139,26 @@ st.markdown("""
 def get_db():
     """Get database connection (cached for entire session)."""
     if is_demo_mode():
-        from database.demo_db import DemoDBManager
-        return DemoDBManager()
+        return get_demo_db()
     try:
         db = get_bq_manager()
         # db.create_schema() # Schema should be managed by admin/automation to avoid permission issues for viewers
         db.migrate_schema()
         return db
     except Exception as e:
-        st.error(f"Failed to connect to BigQuery: {e}")
-        return None
+        st.warning(f"Failed to connect to BigQuery: {e}")
+        st.info("Falling back to local synthetic demo data.")
+        try:
+            return get_demo_db()
+        except Exception as demo_error:
+            st.error(f"Failed to load demo data fallback: {demo_error}")
+            return None
+
+
+def get_demo_db():
+    """Load the local synthetic demo data manager."""
+    from database.demo_db import DemoDBManager
+    return DemoDBManager()
 
 
 def format_currency(value):
@@ -482,7 +492,7 @@ def main():
         st.error("Failed to initialize the database connection. The app cannot continue.")
         return
 
-    _demo_mode = is_demo_mode()
+    _demo_mode = bool(getattr(db, "is_demo", False))
     if _demo_mode:
         st.info("**Demo Mode** — All data shown is synthetic and safe for presentation. No live systems are queried.")
 

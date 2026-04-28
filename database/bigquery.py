@@ -27,6 +27,8 @@ logger = logging.getLogger(__name__)
 class BigQueryManager:
     """Manages BigQuery operations for restaurant data."""
 
+    is_demo = False
+
     def __init__(self, project_id: Optional[str] = None, dataset_id: str = "restaurant_analytics_demo"):
         # Try to get project ID from environment or Streamlit secrets
         self.project_id = project_id or os.getenv("GCS_PROJECT_ID")
