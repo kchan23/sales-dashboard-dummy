@@ -8,7 +8,7 @@ Run from project root:
 """
 import random
 import uuid
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta
 from pathlib import Path
 
 import numpy as np
@@ -60,44 +60,25 @@ ITEM_WEIGHTS = [3, 3, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 2, 1, 1, 1, 1
 ORDER_TYPES = ["Dine In", "Take Out", "Delivery"]
 ORDER_TYPE_WEIGHTS = [0.40, 0.40, 0.20]
 CUSTOMER_CAPTURE_RATE = 0.40
+VISIT_CLUSTER_DAYS = 35
 
-# Target shape copied from the live BigQuery dashboard join distribution.
-# Values are customer counts by distinct visit days, used as weights so the
-# synthetic demo data has repeat-customer behavior instead of all one-timers.
+# Presentation target for distinct visit days. This is intentionally stronger
+# than the live long-tail shape so a 30-day demo slice still has visible repeat
+# customers instead of a chart that reads as all one-timers.
 VISIT_DAY_DISTRIBUTION = [
-    (1, 52553),
-    (2, 2666),
-    (3, 846),
-    (4, 346),
-    (5, 161),
-    (6, 110),
-    (7, 67),
-    (8, 40),
-    (9, 28),
-    (10, 25),
-    (11, 17),
-    (12, 13),
-    (13, 12),
-    (14, 7),
-    (15, 3),
-    (16, 7),
-    (17, 2),
-    (18, 2),
-    (20, 2),
-    (22, 1),
-    (24, 3),
-    (26, 1),
-    (27, 1),
-    (28, 1),
-    (29, 2),
-    (35, 1),
-    (38, 1),
-    (44, 1),
-    (45, 1),
-    (59, 1),
-    (124, 1),
+    (1, 120),
+    (2, 40),
+    (3, 20),
+    (4, 10),
+    (5, 5),
+    (6, 3),
+    (8, 1),
+    (15, 1),
 ]
-CUSTOMER_RECORDS_PER_CUSTOMER_TARGET = 1.1676504690629281
+CUSTOMER_RECORDS_PER_CUSTOMER_TARGET = (
+    sum(visit_days * weight for visit_days, weight in VISIT_DAY_DISTRIBUTION)
+    / sum(weight for _, weight in VISIT_DAY_DISTRIBUTION)
+)
 
 HOURS = list(range(11, 23))  # 11 am – 10 pm
 HOUR_WEIGHTS = np.array([0.3, 1.5, 3.0, 2.5, 1.5, 1.0, 1.5, 3.5, 4.0, 2.5, 1.0, 0.7])
@@ -161,7 +142,7 @@ def date_multiplier(d: date) -> float:
 
 
 def target_visit_days(record_count):
-    """Allocate synthetic customers using the live repeat-visit distribution."""
+    """Allocate synthetic customers using the demo repeat-visit target."""
     target_customers = max(1, int(round(record_count / CUSTOMER_RECORDS_PER_CUSTOMER_TARGET)))
     total_weight = sum(weight for _, weight in VISIT_DAY_DISTRIBUTION)
     expected = [
@@ -206,9 +187,17 @@ def assign_customer_ids(customer_map):
             if not available_dates:
                 break
 
+            anchor_date = str(rng.choice(available_dates))
+            anchor_dt = datetime.strptime(anchor_date, "%Y%m%d").date()
+            clustered_dates = [
+                day
+                for day in available_dates
+                if abs((datetime.strptime(str(day), "%Y%m%d").date() - anchor_dt).days) <= VISIT_CLUSTER_DAYS
+            ]
+            candidate_dates = clustered_dates if len(clustered_dates) >= visit_day_count else available_dates
             selected_dates = rng.choice(
-                available_dates,
-                size=min(visit_day_count, len(available_dates)),
+                candidate_dates,
+                size=min(visit_day_count, len(candidate_dates)),
                 replace=False,
             )
             customer_id = f"{loc}_cust_{customer_counter:06d}"

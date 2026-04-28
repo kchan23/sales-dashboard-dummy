@@ -103,7 +103,7 @@ Key technical and product decisions made during development, with rationale. Con
 
 **Why:** The Streamlit app defaults to demo mode and reads `demo_data/customer_orders_masked.parquet`. If every synthetic customer appears on exactly one order/date, the Customer Analytics visit-frequency distribution collapses into a single `1 day` bar even though the live BigQuery data has repeat identifiable customers.
 
-**Implementation:** The generator uses the live BigQuery dashboard-join visit-day distribution as a scaled target shape, then assigns each synthetic customer to orders on distinct dates. This keeps demo data PII-free while preserving realistic repeat-visit behavior.
+**Implementation:** The generator uses a presentation-scaled visit-day target and assigns repeat customers to clustered distinct dates. This keeps demo data PII-free while preserving realistic repeat-visit behavior in the default 30-day dashboard range.
 
 **Consequence:** After customer-demo logic changes, regenerate local demo parquet files with `python3 scripts/generate_demo_data.py`.
 

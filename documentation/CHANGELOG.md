@@ -18,7 +18,7 @@
 
 ### Changed — `scripts/generate_demo_data.py`
 - Demo customer records now reuse synthetic `customer_id` values across multiple business dates instead of assigning a fresh ID to every customer-tagged order.
-- Added a scaled visit-day target distribution based on the live BigQuery Customer Analytics dashboard join.
+- Added a presentation-scaled visit-day target distribution so the default 30-day dashboard range has visible repeat-customer bins.
 - Regenerated local `demo_data/*.parquet` files so default demo mode shows repeat-visit bins in Customer Analytics.
 
 ### Changed — `app.py`
@@ -27,7 +27,7 @@
 
 ### Why
 - Default demo mode was showing every identifiable customer with exactly one distinct visit day because synthetic demo generation created a new customer ID per order.
-- Live BigQuery raw tables, masked view, and dashboard join contain repeat identifiable customers, so the demo data needed to reflect the same analytical behavior.
+- Live BigQuery raw tables, masked view, and dashboard join contain repeat identifiable customers, so the demo data needed to reflect the same analytical behavior without collapsing in the default date range.
 
 ## [2026-03-26] - Fix `unit_price` column bug & rename to `prediscount_total`
 

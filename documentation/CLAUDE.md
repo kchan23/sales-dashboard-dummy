@@ -153,7 +153,7 @@ Default presentation mode reads local synthetic parquet files from `demo_data/` 
 python3 scripts/generate_demo_data.py
 ```
 
-`scripts/generate_demo_data.py` intentionally reuses synthetic `customer_id` values across multiple business dates. The visit-day allocation is scaled from the live BigQuery Customer Analytics distribution, so the demo Customer Analytics tab shows repeat-customer bins such as `2 days`, `3-4 days`, and `5-7 days` instead of every identifiable customer appearing once.
+`scripts/generate_demo_data.py` intentionally reuses synthetic `customer_id` values across multiple business dates. The visit-day allocation is presentation-scaled and clustered by date, so the demo Customer Analytics tab shows repeat-customer bins such as `2 days`, `3-4 days`, and `5-7 days` in the default 30-day view instead of every identifiable customer appearing once.
 
 ---
 
