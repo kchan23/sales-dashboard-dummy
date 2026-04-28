@@ -36,6 +36,10 @@ class DemoQueryGenerator:
         clarifications: Optional[Dict[str, str]] = None,
     ) -> Tuple[Optional[str], str, Optional[List[Any]]]:
         clarifications = clarifications or {}
+        guardrail_message = self._guardrail_message(question)
+        if guardrail_message:
+            return None, guardrail_message, None
+
         query_kind = self._classify(question, clarifications)
         sql = self._sql_for(query_kind)
         if sql is None:
@@ -51,6 +55,13 @@ class DemoQueryGenerator:
     def _classify(self, question: str, clarifications: Dict[str, str]) -> str:
         q = question.lower()
 
+        has_category_intent = "category" in q or "categories" in q
+
+        if has_category_intent and any(
+            phrase in q
+            for phrase in ("driving", "share", "percent", "percentage", "contribution", "mix")
+        ):
+            return "category_revenue_mix"
         if any(word in q for word in ("inventory", "stock", "reorder")):
             return "inventory_attention"
         if any(word in q for word in ("review", "rating", "sentiment")):
@@ -59,7 +70,7 @@ class DemoQueryGenerator:
             return "customer_summary"
         if any(word in q for word in ("order type", "delivery", "dine", "takeout")):
             return "order_type_mix"
-        if "category" in q:
+        if has_category_intent:
             return "category_performance"
         if any(word in q for word in ("item", "menu", "dish", "popular", "top", "best")):
             if clarifications.get("ranking_basis") == "order_count":
@@ -72,6 +83,37 @@ class DemoQueryGenerator:
         if any(word in q for word in ("revenue", "sales", "orders", "tips", "discount")):
             return "sales_summary"
         return "sales_summary"
+
+    def _guardrail_message(self, question: str) -> Optional[str]:
+        q = question.lower()
+
+        destructive_terms = (
+            "delete", "drop", "truncate", "update", "insert", "alter", "create table",
+            "remove all", "wipe", "erase", "destroy", "grant", "revoke",
+        )
+        if any(term in q for term in destructive_terms):
+            return "Security guardrail: the Q&A tool only supports read-only aggregate analytics. Destructive or write operations are blocked."
+
+        sql_terms = ("select ", " from ", " where ", " join ", " group by", " union ", "--", "/*", "*/")
+        if any(term in q for term in sql_terms):
+            return "Security guardrail: enter a business question in plain English, not SQL code."
+
+        pii_terms = (
+            "email", "phone", "address", "name", "guest", "customer list",
+            "customer id", "customer_id", "pii", "personally identifiable",
+        )
+        if any(term in q for term in pii_terms):
+            return "Privacy guardrail: the Q&A tool does not expose customer PII. Ask for aggregated customer segments instead."
+
+        row_level_terms = (
+            "order id", "order_id", "order guid", "order_guid", "transaction id",
+            "receipt", "raw rows", "raw records", "individual orders", "individual transactions",
+            "line items", "show every order", "list all orders",
+        )
+        if any(term in q for term in row_level_terms):
+            return "Privacy guardrail: row-level transactions and raw identifiers are blocked. Ask for aggregated counts, revenue, or trends instead."
+
+        return None
 
     def _sql_for(self, query_kind: str) -> Optional[str]:
         queries = {
@@ -150,6 +192,27 @@ WHERE location_id = @location_id
 GROUP BY category
 ORDER BY revenue DESC
 """,
+            "category_revenue_mix": """
+SELECT /* DEMO_QUERY: category_revenue_mix */
+  category,
+  order_count,
+  revenue,
+  ROUND(100 * SAFE_DIVIDE(revenue, SUM(revenue) OVER ()), 2) AS revenue_share_pct,
+  avg_price,
+  RANK() OVER (ORDER BY revenue DESC) AS revenue_rank
+FROM (
+  SELECT
+    category,
+    SUM(quantity) AS order_count,
+    SUM(total_price) AS revenue,
+    SAFE_DIVIDE(SUM(total_price), SUM(quantity)) AS avg_price
+  FROM demo_local.order_items_clean
+  WHERE location_id = @location_id
+    AND business_date BETWEEN @start_date AND @end_date
+  GROUP BY category
+)
+ORDER BY revenue_rank
+""",
             "order_type_mix": """
 SELECT /* DEMO_QUERY: order_type_mix */
   order_type,
@@ -213,6 +276,7 @@ ORDER BY customers DESC
             "top_items_by_revenue": "Top menu items ranked by revenue in the selected date range.",
             "top_items_by_orders": "Top menu items ranked by quantity ordered in the selected date range.",
             "category_performance": "Menu category performance by revenue, quantity, and average price.",
+            "category_revenue_mix": "Menu categories ranked by revenue, with each category's sales contribution and average item price.",
             "order_type_mix": "Revenue and order volume split by order type.",
             "inventory_attention": "Inventory items currently marked low or critical in the latest matching snapshot.",
             "review_sentiment": "Review counts and average ratings grouped by sentiment.",

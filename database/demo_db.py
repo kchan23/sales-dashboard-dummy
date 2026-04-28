@@ -345,6 +345,40 @@ class DemoDBManager:
                     .reset_index()
                     .sort_values("revenue", ascending=False)
                 )
+        elif marker == "category_revenue_mix":
+            items = self._filter_items(location_ids, start_date, end_date)
+            if items.empty:
+                df = pd.DataFrame(
+                    columns=[
+                        "category", "order_count", "revenue",
+                        "revenue_share_pct", "avg_price", "revenue_rank",
+                    ]
+                )
+            else:
+                price_col = self._item_price_column(items)
+                df = (
+                    items.groupby("category")
+                    .agg(
+                        order_count=("quantity", "sum"),
+                        revenue=("total_price", "sum"),
+                        avg_price=(price_col, "mean"),
+                    )
+                    .reset_index()
+                    .sort_values("revenue", ascending=False)
+                )
+                total_revenue = df["revenue"].sum()
+                df["revenue_share_pct"] = (
+                    df["revenue"].div(total_revenue).mul(100).round(2)
+                    if total_revenue
+                    else 0
+                )
+                df["revenue_rank"] = range(1, len(df) + 1)
+                df = df[
+                    [
+                        "category", "order_count", "revenue",
+                        "revenue_share_pct", "avg_price", "revenue_rank",
+                    ]
+                ]
         elif marker == "order_type_mix":
             orders = self._filter_orders(location_ids, start_date, end_date)
             if orders.empty:
