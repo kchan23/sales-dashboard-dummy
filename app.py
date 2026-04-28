@@ -161,6 +161,24 @@ def get_demo_db():
     return DemoDBManager()
 
 
+def get_query_tools(db):
+    """Build the query generator and validator for the active data source."""
+    from query.validator import SQLValidator
+
+    if getattr(db, "is_demo", False):
+        from query.demo_generator import DemoQueryGenerator
+        return DemoQueryGenerator(db), SQLValidator(None)
+
+    from query.llm_generator import LLMQueryGenerator
+
+    api_key = st.secrets.get("OPENROUTER_API_KEY") if "OPENROUTER_API_KEY" in st.secrets else os.getenv("OPENROUTER_API_KEY")
+    if not api_key:
+        raise RuntimeError(
+            "OPENROUTER_API_KEY not configured. Please add it to .env file or Streamlit secrets."
+        )
+    return LLMQueryGenerator(db, api_key), SQLValidator(getattr(db, "client", None))
+
+
 def format_currency(value):
     """Format value as currency."""
     return f"${value:,.2f}" if value else "$0.00"
@@ -712,24 +730,23 @@ The generated SQL shown in the Q&A section matches the production query pattern.
         # Part 1: LLM "Ask a Question" section
         st.subheader("Data Exploration Q&A Tool")
         if _demo_mode:
-            st.info("The Q&A tool is disabled in the public demo build.")
+            st.info("Demo mode uses a local query generator for common aggregate questions. No live systems are queried.")
         else:
             st.markdown("Ask your question about the data in plain English, and we'll generate the SQL query to answer it.")
 
         user_question = ""
         ask_triggered = False
-        if not _demo_mode:
-            user_question = st.text_input(
-                "Ask a question about your data (e.g., 'What are the top 10 items by revenue?')",
-                placeholder="e.g., 'Show me daily revenue trends', 'What's the average order value?'",
-                key="user_question",
-                on_change=lambda: st.session_state.update(ask_triggered=True) if st.session_state.get("user_question") else None
-            )
+        user_question = st.text_input(
+            "Ask a question about your data (e.g., 'What are the top 10 items by revenue?')",
+            placeholder="e.g., 'Show me daily revenue trends', 'What's the average order value?'",
+            key="user_question",
+            on_change=lambda: st.session_state.update(ask_triggered=True) if st.session_state.get("user_question") else None
+        )
 
-            ask_button = st.button("Ask", width='stretch')
-            ask_triggered = ask_button or st.session_state.get("ask_triggered", False)
-            if ask_triggered:
-                st.session_state.ask_triggered = False
+        ask_button = st.button("Ask", width='stretch')
+        ask_triggered = ask_button or st.session_state.get("ask_triggered", False)
+        if ask_triggered:
+            st.session_state.ask_triggered = False
 
         # Check for pending clarification FIRST (before ask_triggered check)
         if st.session_state.clarification_pending:
@@ -749,17 +766,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 if query_to_process:
                     with st.spinner("🔄 Generating query with your clarification..."):
                         try:
-                            from query.llm_generator import LLMQueryGenerator
-                            from query.validator import SQLValidator
-
-                            api_key = st.secrets.get("OPENROUTER_API_KEY") if "OPENROUTER_API_KEY" in st.secrets else os.getenv("OPENROUTER_API_KEY")
-
-                            if not api_key:
-                                st.error("⚠️ OPENROUTER_API_KEY not configured.")
-                                st.stop()
-
-                            query_gen = LLMQueryGenerator(db, api_key)
-                            validator = SQLValidator(getattr(db, "client", None))
+                            query_gen, validator = get_query_tools(db)
 
                             query, description, params = query_gen.generate_query(
                                 query_to_process,
@@ -813,18 +820,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
 
             with st.spinner("🔄 Understanding your question..."):
                 try:
-                    from query.llm_generator import LLMQueryGenerator
-                    from query.validator import SQLValidator
-
-                    api_key = st.secrets.get("OPENROUTER_API_KEY") if "OPENROUTER_API_KEY" in st.secrets else os.getenv("OPENROUTER_API_KEY")
-
-                    if not api_key:
-                        st.error("⚠️ OPENROUTER_API_KEY not configured. Please add it to .env file or Streamlit secrets.")
-                        st.info("Get your API key from: https://openrouter.ai/keys")
-                        st.stop()
-
-                    query_gen = LLMQueryGenerator(db, api_key)
-                    validator = SQLValidator(getattr(db, "client", None))
+                    query_gen, validator = get_query_tools(db)
 
                     ambiguity_result = query_gen.detect_ambiguity(user_question)
 

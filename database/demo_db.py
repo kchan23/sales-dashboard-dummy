@@ -11,6 +11,7 @@ Generate the parquet files with:
 from __future__ import annotations
 
 import logging
+import re
 from pathlib import Path
 from typing import List, Optional
 
@@ -19,6 +20,16 @@ import pandas as pd
 logger = logging.getLogger(__name__)
 
 _DATA_DIR = Path(__file__).resolve().parent.parent / "demo_data"
+
+
+class DemoQueryJob:
+    """Small adapter matching BigQuery QueryJob's to_dataframe interface."""
+
+    def __init__(self, df: pd.DataFrame):
+        self._df = df
+
+    def to_dataframe(self) -> pd.DataFrame:
+        return self._df.copy()
 
 
 class DemoDBManager:
@@ -280,13 +291,159 @@ class DemoDBManager:
             .reset_index()
         )
 
-    # ---- Methods intentionally unsupported in demo mode --------------------
+    # ---- Demo SQL support --------------------------------------------------
 
     def query_to_df(self, query: str, params=None) -> pd.DataFrame:
-        raise NotImplementedError("Custom SQL queries are not available in demo mode.")
+        return self.execute(query, params).to_dataframe()
 
     def execute(self, query: str, params=None):
-        raise NotImplementedError("Custom SQL queries are not available in demo mode.")
+        marker = self._demo_query_marker(query)
+        if not marker:
+            raise NotImplementedError(
+                "Only generated demo queries are available in demo mode."
+            )
+
+        param_map = self._param_map(params)
+        location_id = param_map.get("location_id")
+        location_ids = [location_id] if location_id else self.get_locations()
+        start_date = param_map.get("start_date", self._orders["business_date"].min())
+        end_date = param_map.get("end_date", self._orders["business_date"].max())
+        snapshot_date = param_map.get("snapshot_date", end_date)
+
+        if marker in {"daily_revenue", "average_order_value"}:
+            df = self.get_sales_summary(location_ids, start_date, end_date)[
+                ["date", "orders", "revenue", "avg_order_value"]
+            ]
+        elif marker == "sales_summary":
+            daily = self.get_sales_summary(location_ids, start_date, end_date)
+            orders = daily["orders"].sum() if not daily.empty else 0
+            revenue = daily["revenue"].sum() if not daily.empty else 0
+            df = pd.DataFrame([{
+                "orders": orders,
+                "revenue": revenue,
+                "avg_order_value": revenue / orders if orders else 0,
+                "tips": daily["tips"].sum() if not daily.empty else 0,
+                "discounts": daily["discounts"].sum() if not daily.empty else 0,
+            }])
+        elif marker in {"top_items_by_revenue", "top_items_by_orders"}:
+            df = self.get_menu_performance(location_ids, start_date, end_date)
+            sort_col = "revenue" if marker == "top_items_by_revenue" else "order_count"
+            df = df.sort_values(sort_col, ascending=False).head(10)
+        elif marker == "category_performance":
+            items = self._filter_items(location_ids, start_date, end_date)
+            if items.empty:
+                df = pd.DataFrame(columns=["category", "order_count", "revenue", "avg_price"])
+            else:
+                price_col = self._item_price_column(items)
+                df = (
+                    items.groupby("category")
+                    .agg(
+                        order_count=("quantity", "sum"),
+                        revenue=("total_price", "sum"),
+                        avg_price=(price_col, "mean"),
+                    )
+                    .reset_index()
+                    .sort_values("revenue", ascending=False)
+                )
+        elif marker == "order_type_mix":
+            orders = self._filter_orders(location_ids, start_date, end_date)
+            if orders.empty:
+                df = pd.DataFrame(columns=["order_type", "orders", "revenue", "avg_order_value"])
+            else:
+                df = (
+                    orders.groupby("order_type")
+                    .agg(
+                        orders=("order_guid", "count"),
+                        revenue=("total_amount", "sum"),
+                        avg_order_value=("total_amount", "mean"),
+                    )
+                    .reset_index()
+                    .sort_values("revenue", ascending=False)
+                )
+        elif marker == "inventory_attention":
+            df = self.get_inventory_status(location_ids, snapshot_date)
+            df = df[df["status"].isin(["low", "critical"])][
+                ["item", "category", "stock", "reorder_level", "status"]
+            ]
+        elif marker == "review_sentiment":
+            reviews = self.get_reviews(location_ids, start_date, end_date)
+            if reviews.empty:
+                df = pd.DataFrame(columns=["sentiment", "review_count", "avg_rating"])
+            else:
+                df = (
+                    reviews.groupby("sentiment")
+                    .agg(review_count=("rating", "count"), avg_rating=("rating", "mean"))
+                    .reset_index()
+                    .sort_values("review_count", ascending=False)
+                )
+        elif marker == "customer_summary":
+            customers = self.get_customer_analytics(location_ids, start_date, end_date)
+            if customers.empty:
+                df = pd.DataFrame(
+                    columns=["customer_segment", "customers", "avg_total_spend", "avg_order_value"]
+                )
+            else:
+                df = customers.copy()
+                df["customer_segment"] = pd.cut(
+                    df["order_count"],
+                    bins=[0, 1, 4, float("inf")],
+                    labels=["1 order", "2-4 orders", "5+ orders"],
+                    include_lowest=True,
+                )
+                df = (
+                    df.groupby("customer_segment", observed=True)
+                    .agg(
+                        customers=("customer_id", "count"),
+                        avg_total_spend=("total_spend", "mean"),
+                        avg_order_value=("avg_order", "mean"),
+                    )
+                    .reset_index()
+                    .sort_values("customers", ascending=False)
+                )
+        else:
+            raise NotImplementedError(f"Unsupported demo query: {marker}")
+
+        return DemoQueryJob(df.reset_index(drop=True))
+
+    def _filter_orders(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        return self._orders[
+            self._orders["location_id"].isin(location_ids)
+            & (self._orders["business_date"] >= start_date)
+            & (self._orders["business_date"] <= end_date)
+        ]
+
+    def _filter_items(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        return self._items[
+            self._items["location_id"].isin(location_ids)
+            & (self._items["business_date"] >= start_date)
+            & (self._items["business_date"] <= end_date)
+        ]
+
+    def _item_price_column(self, items: pd.DataFrame) -> str:
+        if "true_unit_price" in items.columns:
+            return "true_unit_price"
+        if "unit_price" in items.columns:
+            return "unit_price"
+        if "prediscount_total" in items.columns:
+            return "prediscount_total"
+        return "total_price"
+
+    def _demo_query_marker(self, query: str) -> Optional[str]:
+        match = re.search(r"/\*\s*DEMO_QUERY:\s*([a-z_]+)\s*\*/", query)
+        return match.group(1) if match else None
+
+    def _param_map(self, params) -> dict:
+        result = {}
+        for param in params or []:
+            name = getattr(param, "name", None)
+            value = getattr(param, "value", None)
+            if name:
+                result[name] = value
+        return result
 
     # ---- Write / import methods (silently ignored) -------------------------
 
