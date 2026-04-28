@@ -98,6 +98,17 @@ Key technical and product decisions made during development, with rationale. Con
 
 ---
 
+### Synthetic demo customer IDs model repeat visits
+**Decision:** `scripts/generate_demo_data.py` assigns reusable synthetic `customer_id` values across multiple business dates instead of generating a new customer ID for every customer-tagged order.
+
+**Why:** The Streamlit app defaults to demo mode and reads `demo_data/customer_orders_masked.parquet`. If every synthetic customer appears on exactly one order/date, the Customer Analytics visit-frequency distribution collapses into a single `1 day` bar even though the live BigQuery data has repeat identifiable customers.
+
+**Implementation:** The generator uses the live BigQuery dashboard-join visit-day distribution as a scaled target shape, then assigns each synthetic customer to orders on distinct dates. This keeps demo data PII-free while preserving realistic repeat-visit behavior.
+
+**Consequence:** After customer-demo logic changes, regenerate local demo parquet files with `python3 scripts/generate_demo_data.py`.
+
+---
+
 ## Architecture & Technology Choices
 
 ### React → Streamlit conversion

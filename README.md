@@ -5,11 +5,18 @@ A data analytics dashboard for Dough Zone that visualizes sales, menu performanc
 Public-safe Streamlit demo for restaurant operations analytics.
 
 This repository is configured for presentation mode first. The default app path uses synthetic data from `demo_data/` and does not require BigQuery, GCS, Toast, or Instagram credentials.
+The bundled customer parquet models repeat identifiable customers across dates, so Customer Analytics visit-frequency bins are meaningful in demo mode.
 
 Run locally:
 
 ```bash
 streamlit run app.py
+```
+
+Regenerate the bundled demo parquet files after changing demo-data logic:
+
+```bash
+python3 scripts/generate_demo_data.py
 ```
 
 If you need the live integrations, explicitly set `DEMO_MODE=false` and provide the relevant credentials.

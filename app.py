@@ -1255,23 +1255,45 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             col1, col2 = st.columns(2)
 
             with col1:
-                cap = min(15, int(customer_data["visit_days"].max()))
-                visit_hist = (
-                    customer_data["visit_days"]
-                    .clip(upper=cap)
-                    .value_counts()
-                    .sort_index()
-                    .reset_index()
-                )
-                visit_hist.columns = ["visit_days", "customers"]
+                visit_days = customer_data["visit_days"].fillna(0).astype(int)
+                visit_bins = [
+                    (1, 1, "1 day"),
+                    (2, 2, "2 days"),
+                    (3, 4, "3-4 days"),
+                    (5, 7, "5-7 days"),
+                    (8, 14, "8-14 days"),
+                    (15, np.inf, "15+ days"),
+                ]
+                visit_hist = pd.DataFrame([
+                    {
+                        "visit_days": label,
+                        "customers": int(((visit_days >= lower) & (visit_days <= upper)).sum()),
+                        "sort_order": sort_order,
+                    }
+                    for sort_order, (lower, upper, label) in enumerate(visit_bins)
+                ])
                 fig_visits = px.bar(
                     visit_hist,
                     x="visit_days",
                     y="customers",
-                    title="Visit Frequency Distribution (capped at 15)",
+                    title="Visit Frequency Distribution (binned)",
                     labels={"visit_days": "Distinct Visit Days", "customers": "Customers"},
+                    text="customers",
                 )
-                fig_visits.update_layout(height=350, bargap=0.15)
+                fig_visits.update_layout(height=350, bargap=0.2)
+                fig_visits.update_traces(
+                    marker_color="#ff6b35",
+                    hovertemplate="Visit days: %{x}<br>Customers: %{y:,}<extra></extra>",
+                    texttemplate="%{text:,}",
+                    textposition="outside",
+                    cliponaxis=False,
+                )
+                fig_visits.update_xaxes(
+                    type="category",
+                    categoryorder="array",
+                    categoryarray=visit_hist.sort_values("sort_order")["visit_days"].tolist(),
+                )
+                fig_visits.update_yaxes(rangemode="tozero")
                 st.plotly_chart(fig_visits, width="stretch")
 
             with col2:

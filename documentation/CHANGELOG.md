@@ -1,6 +1,7 @@
 # Changelog
 
 ## Table of Contents
+- [2026-04-28 — Demo Customer Repeat-Visit Distribution](#2026-04-28---demo-customer-repeat-visit-distribution)
 - [2026-03-26 — Fix `unit_price` column bug & rename to `prediscount_total`](#2026-03-26---fix-unit_price-column-bug--rename-to-prediscount_total)
 - [2026-03-23 — Privacy Guardrails & Category Fallback](#2026-03-23---privacy-guardrails--category-fallback)
 - [2026-03-14 — Multi-Location Selector & Exploratory Analysis](#2026-03-14---multi-location-selector--exploratory-analysis)
@@ -12,6 +13,21 @@
 - [2025-11-24 — Inventory Date Formatting & Last Ordered Population](#2025-11-24---inventory-date-formatting--last-ordered-population)
 - [2025-11-24 — UI Navigation Redesign & Branding Update](#2025-11-24---ui-navigation-redesign--branding-update)
 - [2025-11-24 — Natural Language Query & Date Formatting Feature](#2025-11-24---natural-language-query--date-formatting-feature)
+
+## [2026-04-28] - Demo Customer Repeat-Visit Distribution
+
+### Changed — `scripts/generate_demo_data.py`
+- Demo customer records now reuse synthetic `customer_id` values across multiple business dates instead of assigning a fresh ID to every customer-tagged order.
+- Added a scaled visit-day target distribution based on the live BigQuery Customer Analytics dashboard join.
+- Regenerated local `demo_data/*.parquet` files so default demo mode shows repeat-visit bins in Customer Analytics.
+
+### Changed — `app.py`
+- Visit Frequency Distribution now uses explicit bins: `1 day`, `2 days`, `3-4 days`, `5-7 days`, `8-14 days`, and `15+ days`.
+- The x-axis is forced to categorical mode so a single populated bin does not render as a misleading numeric range.
+
+### Why
+- Default demo mode was showing every identifiable customer with exactly one distinct visit day because synthetic demo generation created a new customer ID per order.
+- Live BigQuery raw tables, masked view, and dashboard join contain repeat identifiable customers, so the demo data needed to reflect the same analytical behavior.
 
 ## [2026-03-26] - Fix `unit_price` column bug & rename to `prediscount_total`
 

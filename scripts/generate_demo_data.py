@@ -59,6 +59,45 @@ ITEM_WEIGHTS = [3, 3, 2, 2, 2, 2, 1, 2, 2, 2, 2, 2, 1, 2, 2, 1, 2, 2, 1, 1, 1, 1
 
 ORDER_TYPES = ["Dine In", "Take Out", "Delivery"]
 ORDER_TYPE_WEIGHTS = [0.40, 0.40, 0.20]
+CUSTOMER_CAPTURE_RATE = 0.40
+
+# Target shape copied from the live BigQuery dashboard join distribution.
+# Values are customer counts by distinct visit days, used as weights so the
+# synthetic demo data has repeat-customer behavior instead of all one-timers.
+VISIT_DAY_DISTRIBUTION = [
+    (1, 52553),
+    (2, 2666),
+    (3, 846),
+    (4, 346),
+    (5, 161),
+    (6, 110),
+    (7, 67),
+    (8, 40),
+    (9, 28),
+    (10, 25),
+    (11, 17),
+    (12, 13),
+    (13, 12),
+    (14, 7),
+    (15, 3),
+    (16, 7),
+    (17, 2),
+    (18, 2),
+    (20, 2),
+    (22, 1),
+    (24, 3),
+    (26, 1),
+    (27, 1),
+    (28, 1),
+    (29, 2),
+    (35, 1),
+    (38, 1),
+    (44, 1),
+    (45, 1),
+    (59, 1),
+    (124, 1),
+]
+CUSTOMER_RECORDS_PER_CUSTOMER_TARGET = 1.1676504690629281
 
 HOURS = list(range(11, 23))  # 11 am – 10 pm
 HOUR_WEIGHTS = np.array([0.3, 1.5, 3.0, 2.5, 1.5, 1.0, 1.5, 3.5, 4.0, 2.5, 1.0, 0.7])
@@ -119,6 +158,81 @@ def date_multiplier(d: date) -> float:
     weekday_factor = {0: 0.75, 1: 0.80, 2: 0.85, 3: 0.90, 4: 1.10, 5: 1.25, 6: 1.15}[d.weekday()]
     seasonal = {9: 1.00, 10: 1.05, 11: 1.10, 12: 1.15, 1: 1.10, 2: 1.05, 3: 1.00}.get(d.month, 1.00)
     return weekday_factor * seasonal
+
+
+def target_visit_days(record_count):
+    """Allocate synthetic customers using the live repeat-visit distribution."""
+    target_customers = max(1, int(round(record_count / CUSTOMER_RECORDS_PER_CUSTOMER_TARGET)))
+    total_weight = sum(weight for _, weight in VISIT_DAY_DISTRIBUTION)
+    expected = [
+        (visit_days, target_customers * weight / total_weight)
+        for visit_days, weight in VISIT_DAY_DISTRIBUTION
+    ]
+    counts = {visit_days: int(np.floor(count)) for visit_days, count in expected}
+    remaining = target_customers - sum(counts.values())
+    by_remainder = sorted(
+        expected,
+        key=lambda item: item[1] - np.floor(item[1]),
+        reverse=True,
+    )
+    for visit_days, _ in by_remainder[:remaining]:
+        counts[visit_days] += 1
+
+    visit_days = [
+        visit_day_count
+        for visit_day_count, customer_count in counts.items()
+        for _ in range(customer_count)
+    ]
+    while sum(visit_days) > record_count:
+        idx = max(range(len(visit_days)), key=visit_days.__getitem__)
+        visit_days[idx] -= 1
+    return [count for count in visit_days if count > 0]
+
+
+def assign_customer_ids(customer_map):
+    """Reuse synthetic customer IDs across dates so visit frequency is meaningful."""
+    for loc in LOCATIONS:
+        loc_indices = [idx for idx, row in enumerate(customer_map) if row["location_id"] == loc]
+        records_by_date = {}
+        for idx in loc_indices:
+            records_by_date.setdefault(customer_map[idx]["business_date"], []).append(idx)
+
+        customer_ids_by_date = {}
+        customer_counter = 1
+        planned_visit_days = sorted(target_visit_days(len(loc_indices)), reverse=True)
+
+        for visit_day_count in planned_visit_days:
+            available_dates = [day for day, indices in records_by_date.items() if indices]
+            if not available_dates:
+                break
+
+            selected_dates = rng.choice(
+                available_dates,
+                size=min(visit_day_count, len(available_dates)),
+                replace=False,
+            )
+            customer_id = f"{loc}_cust_{customer_counter:06d}"
+            customer_counter += 1
+
+            for business_date in selected_dates:
+                business_date = str(business_date)
+                row_idx = records_by_date[business_date].pop()
+                customer_map[row_idx]["customer_id"] = customer_id
+                customer_ids_by_date.setdefault(business_date, []).append(customer_id)
+
+        for business_date, indices in records_by_date.items():
+            while indices:
+                if customer_ids_by_date.get(business_date):
+                    customer_id = str(rng.choice(customer_ids_by_date[business_date]))
+                else:
+                    customer_id = f"{loc}_cust_{customer_counter:06d}"
+                    customer_counter += 1
+                    customer_ids_by_date.setdefault(business_date, []).append(customer_id)
+
+                row_idx = indices.pop()
+                customer_map[row_idx]["customer_id"] = customer_id
+
+    return customer_map
 
 
 # ---------------------------------------------------------------------------
@@ -192,10 +306,10 @@ def generate_orders_and_items():
                     "hour_of_day": hour,
                 })
 
-                # 40% of orders have associated customer info
-                if rng.random() < 0.40:
+                # 40% of orders have associated customer info. IDs are assigned
+                # after all records are generated so repeat visits can be modeled.
+                if rng.random() < CUSTOMER_CAPTURE_RATE:
                     customer_map.append({
-                        "customer_id": uuid.uuid4().hex[:16],
                         "order_guid": og,
                         "location_id": loc,
                         "business_date": d.strftime("%Y%m%d"),
@@ -203,6 +317,7 @@ def generate_orders_and_items():
 
             d += timedelta(days=1)
 
+    customer_map = assign_customer_ids(customer_map)
     return pd.DataFrame(orders), pd.DataFrame(items), pd.DataFrame(customer_map)
 
 

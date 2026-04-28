@@ -146,6 +146,15 @@ Raw tables may contain duplicates from dual ingestion paths (CSV imports + Toast
 ### Parquet Exports (`exports/`)
 Exported from views (not raw tables). `customer_orders_masked.parquet` is the only customer export — PII is never exported in plaintext.
 
+### Demo Parquet Data (`demo_data/`)
+Default presentation mode reads local synthetic parquet files from `demo_data/` through `database/demo_db.py`. Regenerate them with:
+
+```bash
+python3 scripts/generate_demo_data.py
+```
+
+`scripts/generate_demo_data.py` intentionally reuses synthetic `customer_id` values across multiple business dates. The visit-day allocation is scaled from the live BigQuery Customer Analytics distribution, so the demo Customer Analytics tab shows repeat-customer bins such as `2 days`, `3-4 days`, and `5-7 days` instead of every identifiable customer appearing once.
+
 ---
 
 ## Development Commands
