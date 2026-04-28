@@ -20,6 +20,11 @@ What are the top 10 items by revenue?
 Expected: top menu items ranked by revenue.
 
 ```text
+How did Pan-Fried Dumplings (6pc) perform over time?
+```
+Expected: daily quantity sold, revenue, and average price for one menu item.
+
+```text
 Show category performance
 ```
 Expected: category-level order count, revenue, and average price.

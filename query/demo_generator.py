@@ -49,7 +49,8 @@ class DemoQueryGenerator:
                 None,
             )
 
-        params = self._create_parameters(sql, location_id, start_date, end_date)
+        item_name = self._specific_item_name(question)
+        params = self._create_parameters(sql, location_id, start_date, end_date, item_name)
         return sql, self._description_for(query_kind), params
 
     def _classify(self, question: str, clarifications: Dict[str, str]) -> str:
@@ -62,6 +63,8 @@ class DemoQueryGenerator:
             for phrase in ("driving", "share", "percent", "percentage", "contribution", "mix")
         ):
             return "category_revenue_mix"
+        if self._specific_item_name(question):
+            return "specific_item_performance"
         if any(word in q for word in ("inventory", "stock", "reorder")):
             return "inventory_attention"
         if any(word in q for word in ("review", "rating", "sentiment")):
@@ -113,6 +116,20 @@ class DemoQueryGenerator:
         if any(term in q for term in row_level_terms):
             return "Privacy guardrail: row-level transactions and raw identifiers are blocked. Ask for aggregated counts, revenue, or trends instead."
 
+        return None
+
+    def _specific_item_name(self, question: str) -> Optional[str]:
+        q = question.lower()
+        known_items = (
+            "Pan-Fried Dumplings (6pc)",
+            "Steamed Dumplings (6pc)",
+            "Soup Dumplings (8pc)",
+            "Noodle Bowl - Beef",
+            "Wontons in Chili Oil",
+        )
+        for item in known_items:
+            if item.lower() in q:
+                return item
         return None
 
     def _sql_for(self, query_kind: str) -> Optional[str]:
@@ -179,6 +196,21 @@ WHERE location_id = @location_id
 GROUP BY item
 ORDER BY order_count DESC
 LIMIT 10
+""",
+            "specific_item_performance": """
+SELECT /* DEMO_QUERY: specific_item_performance */
+  business_date AS date,
+  item_name AS item,
+  ANY_VALUE(category) AS category,
+  SUM(quantity) AS order_count,
+  SUM(total_price) AS revenue,
+  SAFE_DIVIDE(SUM(total_price), SUM(quantity)) AS avg_price
+FROM demo_local.order_items_clean
+WHERE location_id = @location_id
+  AND business_date BETWEEN @start_date AND @end_date
+  AND item_name = @item_name
+GROUP BY date, item
+ORDER BY date
 """,
             "category_performance": """
 SELECT /* DEMO_QUERY: category_performance */
@@ -275,6 +307,7 @@ ORDER BY customers DESC
             "average_order_value": "Average order value by day, with total revenue and order counts for context.",
             "top_items_by_revenue": "Top menu items ranked by revenue in the selected date range.",
             "top_items_by_orders": "Top menu items ranked by quantity ordered in the selected date range.",
+            "specific_item_performance": "Daily quantity sold, revenue, and average price for the selected menu item.",
             "category_performance": "Menu category performance by revenue, quantity, and average price.",
             "category_revenue_mix": "Menu categories ranked by revenue, with each category's sales contribution and average item price.",
             "order_type_mix": "Revenue and order volume split by order type.",
@@ -285,7 +318,12 @@ ORDER BY customers DESC
         return descriptions.get(query_kind, "Demo query generated successfully.")
 
     def _create_parameters(
-        self, sql: str, location_id: str, start_date: str, end_date: str
+        self,
+        sql: str,
+        location_id: str,
+        start_date: str,
+        end_date: str,
+        item_name: Optional[str] = None,
     ) -> List[bigquery.ScalarQueryParameter]:
         params = []
         if "@location_id" in sql:
@@ -296,4 +334,6 @@ ORDER BY customers DESC
             params.append(bigquery.ScalarQueryParameter("end_date", "STRING", end_date))
         if "@snapshot_date" in sql:
             params.append(bigquery.ScalarQueryParameter("snapshot_date", "STRING", end_date))
+        if "@item_name" in sql and item_name:
+            params.append(bigquery.ScalarQueryParameter("item_name", "STRING", item_name))
         return params

@@ -329,6 +329,29 @@ class DemoDBManager:
             df = self.get_menu_performance(location_ids, start_date, end_date)
             sort_col = "revenue" if marker == "top_items_by_revenue" else "order_count"
             df = df.sort_values(sort_col, ascending=False).head(10)
+        elif marker == "specific_item_performance":
+            item_name = param_map.get("item_name")
+            items = self._filter_items(location_ids, start_date, end_date)
+            if item_name:
+                items = items[items["item_name"] == item_name]
+            if items.empty:
+                df = pd.DataFrame(
+                    columns=["date", "item", "category", "order_count", "revenue", "avg_price"]
+                )
+            else:
+                price_col = self._item_price_column(items)
+                df = (
+                    items.groupby(["business_date", "item_name"])
+                    .agg(
+                        category=("category", "first"),
+                        order_count=("quantity", "sum"),
+                        revenue=("total_price", "sum"),
+                        avg_price=(price_col, "mean"),
+                    )
+                    .reset_index()
+                    .rename(columns={"business_date": "date", "item_name": "item"})
+                    .sort_values("date")
+                )
         elif marker == "category_performance":
             items = self._filter_items(location_ids, start_date, end_date)
             if items.empty:
