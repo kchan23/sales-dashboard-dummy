@@ -1,5 +1,5 @@
 """
-Restaurant Analytics Demo - Streamlit application.
+DoughZone Analytics Dashboard - Streamlit application.
 """
 
 import streamlit as st
@@ -27,10 +27,22 @@ logger = logging.getLogger(__name__)
 if TYPE_CHECKING:
     from query.llm_generator import AmbiguityResult
 
+BRAND_BURGUNDY = "#A6192E"
+BRAND_GOLD = "#DABA79"
+BRAND_IVORY = "#F7F3EB"
+BRAND_PAPER = "#FFFDFC"
+BRAND_CHARCOAL = "#2F241F"
+BRAND_MUTED = "#7A6A61"
+BRAND_BORDER = "#E6D8C3"
+BRAND_SLATE = "#5C6B73"
+STATUS_GOOD = "#6A8F63"
+STATUS_WARN = "#C18B2F"
+STATUS_BAD = "#A84A3A"
+STATUS_NEUTRAL = "#8A7A70"
+
 # Page configuration
 st.set_page_config(
-    page_title="Restaurant Analytics Demo",
-    page_icon="📊",
+    page_title="DoughZone Analytics",
     layout="wide",
     initial_sidebar_state="expanded"
 )
@@ -38,21 +50,73 @@ st.set_page_config(
 # Custom CSS
 st.markdown("""
     <style>
+    :root {
+        --dz-burgundy: #A6192E;
+        --dz-gold: #DABA79;
+        --dz-ivory: #F7F3EB;
+        --dz-paper: #FFFDFC;
+        --dz-charcoal: #2F241F;
+        --dz-muted: #7A6A61;
+        --dz-border: #E6D8C3;
+    }
+    .stApp {
+        background-color: var(--dz-ivory);
+        color: var(--dz-charcoal);
+    }
+    [data-testid="stHeader"] {
+        background: rgba(247, 243, 235, 0.88);
+    }
+    [data-testid="stSidebar"] {
+        background-color: #efe5d3;
+        border-right: 1px solid var(--dz-border);
+    }
+    [data-testid="stSidebar"] [data-testid="stMarkdownContainer"],
+    [data-testid="stSidebar"] label,
+    [data-testid="stSidebar"] p,
+    [data-testid="stSidebar"] span {
+        color: var(--dz-charcoal);
+    }
+    h1, h2, h3, h4, h5, h6 {
+        color: var(--dz-charcoal);
+        letter-spacing: -0.02em;
+    }
+    h1 {
+        margin-bottom: 0.35rem;
+    }
     .metric-card {
-        background-color: #f0f2f6;
+        background-color: var(--dz-paper);
         padding: 20px;
-        border-radius: 10px;
-        border-left: 4px solid #ff6b35;
+        border-radius: 12px;
+        border-left: 4px solid var(--dz-burgundy);
+        border: 1px solid var(--dz-border);
     }
     .metric-value {
         font-size: 28px;
         font-weight: bold;
-        color: #262730;
+        color: var(--dz-charcoal);
     }
     .metric-label {
         font-size: 12px;
-        color: #808080;
+        color: var(--dz-muted);
         margin-bottom: 10px;
+    }
+    [data-testid="stMetric"] {
+        background: var(--dz-paper);
+        border: 1px solid var(--dz-border);
+        border-radius: 12px;
+        padding: 0.9rem 1rem;
+    }
+    [data-testid="stMetricLabel"],
+    [data-testid="stMetricValue"] {
+        color: var(--dz-charcoal);
+    }
+    [data-testid="stAlertContainer"] {
+        border-radius: 12px;
+    }
+    [data-testid="stExpander"] {
+        border: 1px solid var(--dz-border);
+        border-radius: 12px;
+        background: var(--dz-paper);
     }
     /* Sidebar enlargement */
     [data-testid="stSidebarNav"] {
@@ -97,11 +161,44 @@ st.markdown("""
     /* Horizontal tab nav font size */
     .stTabs [data-baseweb="tab"] {
         padding: 8px 18px !important;
+        border-radius: 999px !important;
+        background: transparent !important;
     }
     .stTabs [data-baseweb="tab"] p,
     .stTabs button[data-baseweb="tab"] p {
-        font-size: 1.15rem !important;
+        font-size: 1.05rem !important;
         font-weight: 500 !important;
+        color: var(--dz-muted) !important;
+    }
+    .stTabs button[data-baseweb="tab"][aria-selected="true"] {
+        background: rgba(166, 25, 46, 0.08) !important;
+        border: 1px solid rgba(166, 25, 46, 0.22) !important;
+    }
+    .stTabs button[data-baseweb="tab"][aria-selected="true"] p {
+        color: var(--dz-burgundy) !important;
+        font-weight: 600 !important;
+    }
+    .stButton > button {
+        background: var(--dz-burgundy);
+        color: #fffaf5;
+        border-radius: 999px;
+        border: 1px solid var(--dz-burgundy);
+        font-weight: 600;
+    }
+    .stButton > button:hover {
+        background: #8f1628;
+        border-color: #8f1628;
+    }
+    .stTextInput input,
+    .stDateInput input,
+    .stMultiSelect div[data-baseweb="select"],
+    .stSelectbox div[data-baseweb="select"] {
+        border-radius: 10px !important;
+        border-color: var(--dz-border) !important;
+        background: var(--dz-paper) !important;
+    }
+    .stCaption {
+        color: var(--dz-muted) !important;
     }
     /* Mobile: stack columns vertically */
     @media (max-width: 768px) {
@@ -204,6 +301,34 @@ def format_date_display(date_str):
         return date_str
 
 
+def apply_plotly_theme(fig):
+    """Apply a consistent brand theme to Plotly figures."""
+    fig.update_layout(
+        paper_bgcolor=BRAND_PAPER,
+        plot_bgcolor=BRAND_PAPER,
+        font=dict(color=BRAND_CHARCOAL, size=13),
+        title_font=dict(color=BRAND_CHARCOAL, size=20),
+        legend=dict(
+            bgcolor="rgba(255, 253, 252, 0.92)",
+            bordercolor=BRAND_BORDER,
+            borderwidth=1,
+        ),
+        margin=dict(t=64, r=24, b=24, l=24),
+    )
+    fig.update_xaxes(
+        showgrid=True,
+        gridcolor=BRAND_BORDER,
+        zeroline=False,
+        linecolor=BRAND_BORDER,
+    )
+    fig.update_yaxes(
+        showgrid=True,
+        gridcolor=BRAND_BORDER,
+        zeroline=False,
+        linecolor=BRAND_BORDER,
+    )
+
+
 def _apply_small_n_suppression(df: pd.DataFrame, threshold: int = 5) -> tuple:
     """
     Remove rows where any count-like column falls below the suppression threshold.
@@ -260,6 +385,8 @@ def _display_query_visualization(df: pd.DataFrame, description: str):
                 title=f"{metric.title()} Over Time"
             )
             fig.update_layout(height=300, hovermode='x unified')
+            fig.update_traces(line_color=BRAND_BURGUNDY, marker_color=BRAND_BURGUNDY)
+            apply_plotly_theme(fig)
             st.plotly_chart(fig, width='stretch')
 
         if col2 and len(numeric_cols) > 1:
@@ -272,6 +399,8 @@ def _display_query_visualization(df: pd.DataFrame, description: str):
                     title=f"{metric.title()} Over Time"
                 )
                 fig.update_layout(height=300)
+                fig.update_traces(marker_color=BRAND_GOLD)
+                apply_plotly_theme(fig)
                 st.plotly_chart(fig, width='stretch')
 
     # Category comparisons
@@ -285,6 +414,8 @@ def _display_query_visualization(df: pd.DataFrame, description: str):
                 title=f"{string_cols[0].title()} by {metric.title()}"
             )
             fig.update_layout(height=400)
+            fig.update_traces(marker_color=BRAND_BURGUNDY)
+            apply_plotly_theme(fig)
             st.plotly_chart(fig, width='stretch')
 
 
@@ -501,7 +632,7 @@ def load_location_map(db, toast_client=None) -> dict:
 
 def main():
     # Header
-    st.title("Restaurant Analytics Demo")
+    st.title("DoughZone Analytics Dashboard")
 
     # Database connection
     db = get_db()
@@ -921,6 +1052,8 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             )
             fig_revenue.update_layout(hovermode='x unified', height=400, xaxis_tickformat="%m/%d/%Y")
             fig_revenue.update_xaxes(type="date")
+            fig_revenue.update_traces(line_color=BRAND_BURGUNDY, marker_color=BRAND_BURGUNDY)
+            apply_plotly_theme(fig_revenue)
 
             st.plotly_chart(fig_revenue, width='stretch')
 
@@ -938,6 +1071,10 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     textinfo='percent+label',
                 ))
                 fig_orders.update_layout(title="Order Type Distribution", height=350)
+                fig_orders.update_traces(
+                    marker=dict(colors=[BRAND_BURGUNDY, BRAND_GOLD, BRAND_SLATE])
+                )
+                apply_plotly_theme(fig_orders)
                 st.plotly_chart(fig_orders, width='stretch')
 
             with col2:
@@ -960,25 +1097,27 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 x=sales_data_sales['date'],
                 y=sales_data_sales['revenue'],
                 name='Revenue ($)',
-                marker_color='#ff6b35',
+                marker_color=BRAND_BURGUNDY,
                 yaxis='y'
             ))
             fig_comparison.add_trace(go.Scatter(
                 x=sales_data_sales['date'],
                 y=sales_data_sales['orders'],
                 name='Orders',
-                marker_color='#004e89',
+                marker_color=BRAND_SLATE,
+                line_color=BRAND_SLATE,
                 yaxis='y2',
                 mode='lines+markers'
             ))
             fig_comparison.update_layout(
                 title="Revenue vs Orders",
                 xaxis=dict(title='Date', type="date", tickformat="%m/%d/%Y"),
-                yaxis=dict(title='Revenue ($)', title_font=dict(color='#ff6b35'), tickfont=dict(color='#ff6b35')),
-                yaxis2=dict(title='Orders', title_font=dict(color='#004e89'), tickfont=dict(color='#004e89'), overlaying='y', side='right'),
+                yaxis=dict(title='Revenue ($)', title_font=dict(color=BRAND_BURGUNDY), tickfont=dict(color=BRAND_BURGUNDY)),
+                yaxis2=dict(title='Orders', title_font=dict(color=BRAND_SLATE), tickfont=dict(color=BRAND_SLATE), overlaying='y', side='right'),
                 hovermode='x unified',
                 height=400
             )
+            apply_plotly_theme(fig_comparison)
             st.plotly_chart(fig_comparison, width='stretch')
 
             # Average order value trend
@@ -992,6 +1131,8 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             )
             fig_aov.update_layout(hovermode='x unified', height=400, xaxis_tickformat="%m/%d/%Y")
             fig_aov.update_xaxes(type="date")
+            fig_aov.update_traces(line_color=BRAND_GOLD, marker_color=BRAND_GOLD)
+            apply_plotly_theme(fig_aov)
 
             st.plotly_chart(fig_aov, width='stretch')
 
@@ -1008,6 +1149,8 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 )
                 fig_tips.update_layout(xaxis_tickformat="%m/%d/%Y")
                 fig_tips.update_xaxes(type="date")
+                fig_tips.update_traces(marker_color=BRAND_GOLD)
+                apply_plotly_theme(fig_tips)
 
                 st.plotly_chart(fig_tips, width='stretch')
 
@@ -1021,6 +1164,8 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 )
                 fig_discounts.update_layout(xaxis_tickformat="%m/%d/%Y")
                 fig_discounts.update_xaxes(type="date")
+                fig_discounts.update_traces(marker_color=STATUS_BAD)
+                apply_plotly_theme(fig_discounts)
 
                 st.plotly_chart(fig_discounts, width='stretch')
 
@@ -1042,6 +1187,8 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     title="Top 15 Items by Revenue",
                     labels={'revenue': 'Revenue ($)', 'item': 'Item'}
                 )
+                fig_menu.update_traces(marker_color=BRAND_BURGUNDY)
+                apply_plotly_theme(fig_menu)
                 st.plotly_chart(fig_menu, width='stretch')
 
             with col1:
@@ -1053,8 +1200,10 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     x='order_count',
                     orientation='h',
                     title="Top 15 Items by Order Count",
-                    labels={'order_count': 'Orders', 'item': 'Item'}
+                    labels={'order_count': 'Orders', 'item': 'Item'},
+                    color_discrete_sequence=[BRAND_SLATE],
                 )
+                apply_plotly_theme(fig_orders)
                 st.plotly_chart(fig_orders, width='stretch')
 
             # Menu items table
@@ -1194,7 +1343,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     x=coef_df["beta"],
                     y=coef_df["label"],
                     orientation="h",
-                    marker_color=["#b22222" if b > 0 else "#4682b4" for b in coef_df["beta"]],
+                    marker_color=[BRAND_BURGUNDY if b > 0 else BRAND_SLATE for b in coef_df["beta"]],
                     text=[f"β={b:.3f} {s}" for b, s in zip(coef_df["beta"], coef_df["sig"])],
                     textposition="outside",
                 ))
@@ -1205,6 +1354,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     height=420,
                     margin=dict(l=10, r=120, t=50, b=40),
                 )
+                apply_plotly_theme(fig)
                 st.plotly_chart(fig, width="stretch")
 
                 with st.expander("Full coefficient table"):
@@ -1282,7 +1432,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 )
                 fig_visits.update_layout(height=350, bargap=0.2)
                 fig_visits.update_traces(
-                    marker_color="#ff6b35",
+                    marker_color=BRAND_BURGUNDY,
                     hovertemplate="Visit days: %{x}<br>Customers: %{y:,}<extra></extra>",
                     texttemplate="%{text:,}",
                     textposition="outside",
@@ -1294,6 +1444,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     categoryarray=visit_hist.sort_values("sort_order")["visit_days"].tolist(),
                 )
                 fig_visits.update_yaxes(rangemode="tozero")
+                apply_plotly_theme(fig_visits)
                 st.plotly_chart(fig_visits, width="stretch")
 
             with col2:
@@ -1306,10 +1457,11 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     values="Revenue",
                     names="Segment",
                     title="Revenue Share: Repeat vs One-Time",
-                    color_discrete_sequence=["#ff6b35", "#004e89"],
+                    color_discrete_sequence=[BRAND_BURGUNDY, BRAND_SLATE],
                 )
                 fig_rev.update_traces(textinfo="percent+label")
                 fig_rev.update_layout(height=350)
+                apply_plotly_theme(fig_rev)
                 st.plotly_chart(fig_rev, width="stretch")
 
             p95 = customer_data["total_spend"].quantile(0.95)
@@ -1317,7 +1469,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 customer_data["total_spend"].clip(upper=p95),
                 nbins=30,
                 title="Customer Total Spend Distribution (capped at 95th percentile)",
-                color_discrete_sequence=["#ff6b35"],
+                color_discrete_sequence=[BRAND_BURGUNDY],
             )
             fig_spend.update_layout(
                 showlegend=False,
@@ -1325,6 +1477,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 yaxis_title="Customers",
                 height=350,
             )
+            apply_plotly_theme(fig_spend)
             st.plotly_chart(fig_spend, width="stretch")
 
             total_orders_in_period = customer_data["order_count"].sum()
@@ -1474,7 +1627,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
     st.divider()
     footer_source = "Synthetic demo dataset" if _demo_mode else "Cloud warehouse"
     st.markdown("""
-        <div style='text-align: center; color: gray; font-size: 12px;'>
+        <div style='text-align: center; color: """ + BRAND_MUTED + """; font-size: 12px;'>
             Data Source: """ + footer_source + """ | Last Updated: """ + datetime.now().strftime("%Y-%m-%d %H:%M:%S") + """
         </div>
     """, unsafe_allow_html=True)
