@@ -42,6 +42,27 @@ STATUS_NEUTRAL = "#8A7A70"
 DRIVER_POSITIVE = "#B22222"
 DRIVER_NEGATIVE = "#2F5F8F"
 
+ACTION_BADGE_STYLES = {
+    "Promote": {"background": BRAND_BURGUNDY, "color": "#FFFFFF"},
+    "Bundle": {"background": BRAND_SLATE, "color": "#FFFFFF"},
+    "Re-price": {"background": BRAND_GOLD, "color": BRAND_CHARCOAL},
+    "Rework": {"background": STATUS_WARN, "color": BRAND_CHARCOAL},
+    "Remove": {"background": STATUS_BAD, "color": "#FFFFFF"},
+}
+
+
+def action_badge_style(action: str) -> str:
+    style = ACTION_BADGE_STYLES.get(action)
+    if not style:
+        return ""
+    return (
+        f"background-color: {style['background']}; "
+        f"color: {style['color']}; "
+        "font-weight: 700; "
+        "text-align: center; "
+        "border-radius: 6px;"
+    )
+
 # Page configuration
 st.set_page_config(
     page_title="DoughZone Analytics",
@@ -1513,15 +1534,20 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             rec_display["popularity_pct"] = rec_display["popularity"] * 100
             rec_display["discount_rate_pct"] = rec_display["discount_rate"] * 100
             rec_display["cost_coverage_pct"] = rec_display["cost_coverage"] * 100
+            action_recommendation_display = rec_display[
+                [
+                    "display_name", "recommended_action", "category", "quadrant", "confidence",
+                    "net_revenue", "orders_with_item", "popularity_pct", "avg_unit_price",
+                    "avg_est_margin_per_unit", "avg_net_rev_per_unit", "discount_rate_pct",
+                    "cost_coverage_pct", "margin_source",
+                ]
+            ]
+            styled_action_recommendations = action_recommendation_display.style.map(
+                action_badge_style,
+                subset=["recommended_action"],
+            )
             st.dataframe(
-                rec_display[
-                    [
-                        "display_name", "category", "quadrant", "recommended_action", "confidence",
-                        "net_revenue", "orders_with_item", "popularity_pct", "avg_unit_price",
-                        "avg_est_margin_per_unit", "avg_net_rev_per_unit", "discount_rate_pct",
-                        "cost_coverage_pct", "margin_source",
-                    ]
-                ],
+                styled_action_recommendations,
                 hide_index=True,
                 width="stretch",
                 column_config={
