@@ -19,6 +19,11 @@ import re
 import time
 from pathlib import Path
 
+try:
+    import holidays as holidays_lib
+except ImportError:
+    holidays_lib = None
+
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)
@@ -369,6 +374,133 @@ def format_currency(value):
 def format_number(value):
     """Format value as number."""
     return f"{value:,.0f}" if value else "0"
+
+
+def with_alpha(color: str, alpha: float) -> str:
+    if not isinstance(color, str):
+        return color
+    if color.startswith("#") and len(color) == 7:
+        hex_color = color.lstrip("#")
+        r = int(hex_color[0:2], 16)
+        g = int(hex_color[2:4], 16)
+        b = int(hex_color[4:6], 16)
+        return f"rgba({r},{g},{b},{alpha})"
+    return color
+
+
+def format_compact_number(value, currency: bool = False) -> str:
+    amount = float(value or 0)
+    abs_amount = abs(amount)
+    prefix = "$" if currency else ""
+    suffix = ""
+    scaled = amount
+    if abs_amount >= 1_000_000_000:
+        scaled = amount / 1_000_000_000
+        suffix = "B"
+    elif abs_amount >= 1_000_000:
+        scaled = amount / 1_000_000
+        suffix = "M"
+    elif abs_amount >= 1_000:
+        scaled = amount / 1_000
+        suffix = "K"
+    if suffix:
+        return f"{prefix}{scaled:,.2f}{suffix}" if currency else f"{scaled:,.1f}{suffix}"
+    return format_currency(amount) if currency else format_number(amount)
+
+
+MENU_RECOMMENDATION_COLUMNS = [
+    "canonical_name", "display_name", "category", "quadrant", "popularity",
+    "net_revenue", "total_qty", "orders_with_item", "avg_unit_price",
+    "avg_net_rev_per_unit", "avg_est_margin_per_unit", "est_margin_pct",
+    "discount_rate", "cost_coverage", "margin_source",
+    "recommended_action", "confidence",
+]
+
+BUNDLE_OPPORTUNITY_COLUMNS = [
+    "item_a", "item_b", "display_a", "display_b", "category_a", "category_b",
+    "pair_type", "pair_count", "support", "orders_a", "orders_b",
+    "confidence_b_given_a", "confidence_a_given_b", "lift",
+]
+
+PROMO_OPPORTUNITY_COLUMNS = [
+    "canonical_name", "display_name", "category", "store_days",
+    "discount_days", "avg_qty_discounted_days", "avg_qty_regular_days",
+    "qty_lift_on_discount_days", "unique_prices", "min_price", "max_price",
+    "price_range", "opportunity_type",
+]
+
+
+def _empty_df(columns):
+    return pd.DataFrame(columns=columns)
+
+
+def _fallback_action(quadrant, revenue):
+    if quadrant == "Star":
+        return "Promote"
+    if quadrant == "Puzzle":
+        return "Promote"
+    if quadrant == "Plowhorse":
+        return "Re-price"
+    return "Rework" if revenue >= 5000 else "Remove"
+
+
+def _fallback_confidence(orders_with_item):
+    if orders_with_item >= 100:
+        return "High"
+    if orders_with_item >= 25:
+        return "Medium"
+    return "Low"
+
+
+def _build_menu_recommendations_fallback(menu_data: pd.DataFrame) -> pd.DataFrame:
+    """Derive dummy menu optimization rows when the active demo DB lacks Obj5 methods."""
+    if menu_data.empty:
+        return _empty_df(MENU_RECOMMENDATION_COLUMNS)
+
+    recs = menu_data.copy()
+    total_orders = recs["order_count"].sum()
+    recs["canonical_name"] = recs["item"]
+    recs["display_name"] = recs["item"]
+    recs["orders_with_item"] = recs["order_count"]
+    recs["total_qty"] = recs["order_count"]
+    recs["net_revenue"] = recs["revenue"]
+    recs["avg_unit_price"] = recs["avg_price"]
+    recs["popularity"] = recs["orders_with_item"] / total_orders if total_orders else 0
+    recs["avg_net_rev_per_unit"] = recs["net_revenue"] / recs["total_qty"].replace(0, np.nan)
+    recs["avg_est_margin_per_unit"] = recs["avg_net_rev_per_unit"] * 0.62
+    recs["est_margin_pct"] = 0.62
+    recs["discount_rate"] = 0.0
+    recs["cost_coverage"] = 1.0
+    recs["margin_source"] = "Synthetic cost proxy"
+
+    pop_threshold = recs["popularity"].median()
+    margin_threshold = recs["avg_est_margin_per_unit"].median()
+    recs["quadrant"] = np.select(
+        [
+            (recs["popularity"] >= pop_threshold) & (recs["avg_est_margin_per_unit"] >= margin_threshold),
+            (recs["popularity"] >= pop_threshold) & (recs["avg_est_margin_per_unit"] < margin_threshold),
+            (recs["popularity"] < pop_threshold) & (recs["avg_est_margin_per_unit"] >= margin_threshold),
+        ],
+        ["Star", "Plowhorse", "Puzzle"],
+        default="Dog",
+    )
+    recs["recommended_action"] = recs.apply(
+        lambda row: _fallback_action(row["quadrant"], row["net_revenue"]),
+        axis=1,
+    )
+    recs["confidence"] = recs["orders_with_item"].apply(_fallback_confidence)
+    return recs[MENU_RECOMMENDATION_COLUMNS].sort_values("net_revenue", ascending=False)
+
+
+def _call_optional_df(db, method_name: str, fallback, *args) -> pd.DataFrame:
+    """Call an optional DB method, falling back for older dummy DB instances."""
+    method = getattr(db, method_name, None)
+    if method is None:
+        return fallback() if callable(fallback) else fallback.copy()
+    try:
+        return method(*args)
+    except AttributeError:
+        return fallback() if callable(fallback) else fallback.copy()
 
 
 def is_demo_mode() -> bool:
@@ -770,6 +902,818 @@ def load_location_map(db, toast_client=None) -> dict:
     return fallback_map
 
 
+# ---------------------------------------------------------------------------
+# Engagement Analysis helpers
+# ---------------------------------------------------------------------------
+
+def _empty_instagram_media() -> pd.DataFrame:
+    return pd.DataFrame(
+        columns=[
+            "id", "date", "caption", "media_type", "permalink", "likes",
+            "comments_count", "views", "reach", "saved", "shares",
+            "total_interactions",
+        ]
+    )
+
+
+def _normalize_instagram_media(media: pd.DataFrame) -> pd.DataFrame:
+    if media is None or media.empty:
+        return _empty_instagram_media()
+
+    media = media.copy()
+    if "date" not in media.columns:
+        for candidate in ["posted_date", "posted_date_utc", "uploaded_date_utc", "timestamp"]:
+            if candidate in media.columns:
+                media["date"] = media[candidate]
+                break
+    media["date"] = pd.to_datetime(media.get("date"), errors="coerce").dt.normalize()
+    media = media.dropna(subset=["date"])
+
+    if "id" not in media.columns and "media_id" in media.columns:
+        media["id"] = media["media_id"]
+    media["caption"] = media.get("caption", "").fillna("").astype(str)
+    for col in ["likes", "comments_count", "views", "reach", "saved", "shares"]:
+        media[col] = pd.to_numeric(media[col] if col in media.columns else 0, errors="coerce")
+    media["total_interactions"] = pd.to_numeric(
+        media["total_interactions"] if "total_interactions" in media.columns else np.nan,
+        errors="coerce",
+    )
+
+    media[["likes", "comments_count", "views", "saved", "shares"]] = (
+        media[["likes", "comments_count", "views", "saved", "shares"]].fillna(0)
+    )
+    media["total_interactions"] = media["total_interactions"].fillna(
+        media["likes"] + media["comments_count"] + media["shares"] + media["saved"]
+    )
+    median_interactions = media["total_interactions"].median()
+    median_views = media.loc[media["views"] > 0, "views"].median() if (media["views"] > 0).any() else 0
+    views_scale = float(median_interactions / median_views) if median_views and median_views > 0 else 0.0
+    media["_views_scale"] = views_scale
+    media["engagement_score"] = media["total_interactions"] + views_scale * media["views"]
+    return media
+
+
+@st.cache_data(show_spinner=False)
+def _fit_bertopic_on_captions(captions_tuple: tuple) -> dict | None:
+    try:
+        from bertopic import BERTopic
+        from hdbscan import HDBSCAN
+        from sklearn.feature_extraction.text import CountVectorizer
+        from umap import UMAP
+    except ImportError:
+        return None
+
+    docs = [
+        re.sub(r"#\w+", "", caption).strip()
+        for caption in captions_tuple
+        if isinstance(caption, str) and caption.strip()
+    ]
+    if len(docs) < 5:
+        return None
+
+    try:
+        vectorizer_model = CountVectorizer(ngram_range=(1, 3), stop_words="english", min_df=2)
+        n_docs = len(docs)
+        topic_model = BERTopic(
+            embedding_model="all-MiniLM-L6-v2",
+            umap_model=UMAP(
+                n_neighbors=min(12, max(2, n_docs // 8)),
+                n_components=min(5, max(2, n_docs // 18)),
+                min_dist=0.0,
+                metric="cosine",
+                random_state=42,
+            ),
+            hdbscan_model=HDBSCAN(
+                min_cluster_size=3,
+                min_samples=1,
+                metric="euclidean",
+                cluster_selection_method="eom",
+                prediction_data=True,
+            ),
+            vectorizer_model=vectorizer_model,
+            calculate_probabilities=True,
+            verbose=False,
+        )
+        topics, probs = topic_model.fit_transform(docs)
+        try:
+            topics = topic_model.reduce_outliers(docs, topics, probabilities=probs, strategy="probabilities")
+        except Exception:
+            pass
+    except Exception:
+        return None
+
+    topic_info = topic_model.get_topic_info()
+    topic_words: dict[int, list[str]] = {}
+    for tid in topic_info["Topic"].tolist():
+        if tid == -1:
+            continue
+        words = topic_model.get_topic(tid) or []
+        topic_words[tid] = [word for word, _ in words[:8]]
+
+    if not topic_words:
+        return None
+
+    valid_idx = [
+        i for i, caption in enumerate(captions_tuple)
+        if isinstance(caption, str) and re.sub(r"#\w+", "", caption).strip()
+    ]
+    return {
+        "valid_idx": valid_idx,
+        "topics": list(topics),
+        "topic_words": topic_words,
+        "topic_info": topic_info.to_dict("records"),
+        "num_outliers": list(topics).count(-1),
+    }
+
+
+def _classify_social_topics(media: pd.DataFrame, allow_bertopic: bool = True) -> tuple[pd.DataFrame, dict]:
+    media = media.copy()
+    if media.empty:
+        for col in ["promo_topic", "product_topic", "event_topic"]:
+            media[col] = pd.Series(dtype=int)
+        return media, {"success": False, "num_outliers": 0, "topics": []}
+
+    promo_kw = [
+        "discount", "deal", "offer", "promo", "promotion", "special", "save",
+        "gift card", "free", "giveaway", "coupon", "bundle", "rewards",
+        "limited", "win", "lunch special", "happy hour",
+    ]
+    product_kw = [
+        "dumpling", "dumplings", "xlb", "xiao long bao", "bao", "bun",
+        "noodle", "noodles", "fried rice", "wonton", "potsticker",
+        "scallion pancake", "chili oil", "dan dan", "beef", "shrimp",
+        "pork", "chicken", "milk tea", "menu",
+    ]
+    event_kw = [
+        "grand opening", "soft opening", "now open", "new location", "holiday",
+        "christmas", "new year", "lunar", "valentine", "mother's day",
+        "thanksgiving", "halloween", "anniversary", "event", "festival",
+        "community", "catering", "collab",
+    ]
+
+    def kw_match(text: str, keywords: list[str]) -> int:
+        low = text.lower()
+        return int(any(keyword in low for keyword in keywords))
+
+    bertopic_meta = (
+        _fit_bertopic_on_captions(tuple(media["caption"].tolist()))
+        if allow_bertopic
+        else None
+    )
+
+    if bertopic_meta:
+        promo_seeds = {"discount", "deal", "offer", "promo", "promotion", "special", "free", "bundle", "rewards"}
+        product_seeds = {"dumpling", "dumplings", "xlb", "bao", "noodle", "noodles", "rice", "wonton", "chicken", "pork"}
+        event_seeds = {"opening", "holiday", "christmas", "lunar", "event", "festival", "community", "catering"}
+        topic_category = {}
+        for tid, words in bertopic_meta["topic_words"].items():
+            word_set = {word.lower() for word in words}
+            scores = {
+                "Promotions": len(word_set & promo_seeds),
+                "Product Features": len(word_set & product_seeds),
+                "Events & Holidays": len(word_set & event_seeds),
+            }
+            best = max(scores, key=scores.get)
+            topic_category[tid] = best if scores[best] > 0 else "Other"
+
+        media["_bt_topic"] = -1
+        for doc_idx, media_idx in enumerate(bertopic_meta["valid_idx"]):
+            if media_idx < len(media):
+                media.iat[media_idx, media.columns.get_loc("_bt_topic")] = bertopic_meta["topics"][doc_idx]
+        media["promo_topic"] = media["_bt_topic"].map(topic_category).eq("Promotions").astype(int)
+        media["product_topic"] = media["_bt_topic"].map(topic_category).eq("Product Features").astype(int)
+        media["event_topic"] = media["_bt_topic"].map(topic_category).eq("Events & Holidays").astype(int)
+        unclassified = (media[["promo_topic", "product_topic", "event_topic"]].sum(axis=1) == 0)
+        if unclassified.any():
+            media.loc[unclassified, "promo_topic"] = media.loc[unclassified, "caption"].map(lambda t: kw_match(t, promo_kw))
+            media.loc[unclassified, "product_topic"] = media.loc[unclassified, "caption"].map(lambda t: kw_match(t, product_kw))
+            media.loc[unclassified, "event_topic"] = media.loc[unclassified, "caption"].map(lambda t: kw_match(t, event_kw))
+        bertopic_meta = {
+            "success": True,
+            "num_outliers": bertopic_meta["num_outliers"],
+            "topics": [
+                {
+                    "topic_id": rec["Topic"],
+                    "label": ", ".join(bertopic_meta["topic_words"].get(rec["Topic"], ["(no keywords)"])[:5]),
+                    "category": topic_category.get(rec["Topic"], "Other"),
+                    "count": rec.get("Count", 0),
+                }
+                for rec in bertopic_meta["topic_info"]
+                if rec["Topic"] != -1
+            ],
+        }
+    else:
+        media["promo_topic"] = media["caption"].map(lambda t: kw_match(t, promo_kw))
+        media["product_topic"] = media["caption"].map(lambda t: kw_match(t, product_kw))
+        media["event_topic"] = media["caption"].map(lambda t: kw_match(t, event_kw))
+        bertopic_meta = {"success": False, "num_outliers": 0, "topics": []}
+
+    return media, bertopic_meta
+
+
+def build_social_daily(media: pd.DataFrame, allow_bertopic: bool = True) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    media = _normalize_instagram_media(media)
+    media, bertopic_meta = _classify_social_topics(media, allow_bertopic=allow_bertopic)
+    if media.empty:
+        columns = [
+            "date", "post_count", "total_likes", "total_views", "total_post_comments",
+            "comment_count", "promo_topic_share", "product_topic_share", "event_topic_share",
+            "weighted_promo_signal", "weighted_product_signal", "weighted_event_signal",
+            "total_engagement", "engagement_index",
+        ]
+        return pd.DataFrame(columns=columns), media, bertopic_meta
+
+    media["_wt_promo"] = media["engagement_score"] * media["promo_topic"]
+    media["_wt_product"] = media["engagement_score"] * media["product_topic"]
+    media["_wt_event"] = media["engagement_score"] * media["event_topic"]
+
+    social_daily = (
+        media.groupby("date", as_index=False)
+        .agg(
+            post_count=("id", "count"),
+            total_likes=("likes", "sum"),
+            total_views=("views", "sum"),
+            total_post_comments=("comments_count", "sum"),
+            comment_count=("comments_count", "sum"),
+            promo_topic_share=("promo_topic", "mean"),
+            product_topic_share=("product_topic", "mean"),
+            event_topic_share=("event_topic", "mean"),
+            weighted_promo_signal=("_wt_promo", "sum"),
+            weighted_product_signal=("_wt_product", "sum"),
+            weighted_event_signal=("_wt_event", "sum"),
+            total_engagement=("engagement_score", "sum"),
+        )
+    )
+
+    components = []
+    for col in ["total_engagement", "comment_count", "post_count"]:
+        col_min = social_daily[col].min()
+        col_max = social_daily[col].max()
+        if pd.isna(col_min) or pd.isna(col_max) or col_max == col_min:
+            components.append(pd.Series(0, index=social_daily.index))
+        else:
+            components.append((social_daily[col] - col_min) / (col_max - col_min))
+    social_daily["engagement_index"] = sum(components) * 100 / 3
+    return social_daily.sort_values("date"), media, bertopic_meta
+
+
+def build_engagement_features(
+    db,
+    selected_locations: list[str],
+    location_map: dict,
+    start_date: str,
+    end_date: str,
+    allow_bertopic: bool = True,
+) -> tuple[pd.DataFrame, pd.DataFrame, dict]:
+    try:
+        sales_daily = db.get_daily_drivers_data(start_date, end_date)
+    except Exception as exc:
+        logger.warning("Unable to load daily driver data for engagement analysis: %s", exc)
+        sales_daily = pd.DataFrame()
+    try:
+        media = db.get_instagram_media(start_date, end_date)
+    except Exception as exc:
+        logger.warning("Unable to load Instagram media for engagement analysis: %s", exc)
+        media = _empty_instagram_media()
+
+    social_daily, media, bertopic_meta = build_social_daily(media, allow_bertopic=allow_bertopic)
+    if sales_daily.empty:
+        return pd.DataFrame(), media, bertopic_meta
+
+    sales_daily = sales_daily.copy()
+    sales_daily["date"] = pd.to_datetime(sales_daily["business_date"], errors="coerce").dt.normalize()
+    selected_set = set(selected_locations)
+    if selected_set:
+        sales_daily = sales_daily[sales_daily["location_id"].astype(str).isin(selected_set)]
+
+    if sales_daily.empty:
+        return pd.DataFrame(), media, bertopic_meta
+
+    sales_daily["revenue"] = pd.to_numeric(sales_daily.get("gross_revenue", 0), errors="coerce").fillna(0)
+    sales_daily["transactions"] = pd.to_numeric(sales_daily.get("order_count", 0), errors="coerce").fillna(0)
+    sales_daily["avg_ticket"] = np.where(
+        sales_daily["transactions"] > 0,
+        sales_daily["revenue"] / sales_daily["transactions"],
+        0,
+    )
+    sales_daily["discount_amount"] = pd.to_numeric(sales_daily.get("total_discounts", 0), errors="coerce").fillna(0)
+    sales_daily["promo_flag"] = sales_daily["discount_amount"] > 0
+
+    if holidays_lib is not None and not sales_daily.empty:
+        min_year = int(sales_daily["date"].dt.year.min())
+        max_year = int(sales_daily["date"].dt.year.max())
+        us_holidays = holidays_lib.US(years=range(min_year, max_year + 1))
+        sales_daily["holiday_flag"] = sales_daily["date"].dt.date.map(lambda d: d in us_holidays)
+        sales_daily["holiday_name"] = sales_daily["date"].dt.date.map(lambda d: us_holidays.get(d))
+    else:
+        sales_daily["holiday_flag"] = False
+        sales_daily["holiday_name"] = None
+
+    feature_cols = [
+        "location_id", "date", "revenue", "transactions", "avg_ticket",
+        "promo_flag", "discount_amount", "holiday_flag", "holiday_name",
+    ]
+    sales_features = sales_daily[feature_cols].copy()
+
+    all_locations = (
+        sales_features.groupby("date", as_index=False)
+        .agg(
+            revenue=("revenue", "sum"),
+            transactions=("transactions", "sum"),
+            promo_flag=("promo_flag", "max"),
+            discount_amount=("discount_amount", "sum"),
+            holiday_flag=("holiday_flag", "max"),
+            holiday_name=("holiday_name", "first"),
+        )
+        .assign(location_id="ALL")
+    )
+    all_locations["avg_ticket"] = np.where(
+        all_locations["transactions"] > 0,
+        all_locations["revenue"] / all_locations["transactions"],
+        0,
+    )
+
+    features = pd.concat([sales_features, all_locations[feature_cols]], ignore_index=True)
+    features["location_label"] = features["location_id"].map(location_map).fillna(features["location_id"])
+    features.loc[features["location_id"] == "ALL", "location_label"] = "All Selected Locations"
+    features = features.merge(social_daily, on="date", how="left")
+
+    fill_zero_cols = [
+        "post_count", "total_likes", "total_views", "total_post_comments", "comment_count",
+        "promo_topic_share", "product_topic_share", "event_topic_share",
+        "weighted_promo_signal", "weighted_product_signal", "weighted_event_signal",
+        "total_engagement", "engagement_index",
+    ]
+    for col in fill_zero_cols:
+        if col not in features.columns:
+            features[col] = 0
+        features[col] = pd.to_numeric(features[col], errors="coerce").fillna(0)
+
+    return features.sort_values(["location_id", "date"]).reset_index(drop=True), media, bertopic_meta
+
+
+def _pick_peak_lag(series: pd.Series, outcome: pd.Series, max_lag: int = 14) -> int:
+    best_abs_lag, best_abs_r = 1, 0.0
+    best_pos_lag, best_pos_r = None, -np.inf
+    s = pd.to_numeric(series, errors="coerce")
+    y = pd.to_numeric(outcome, errors="coerce")
+    for lag in range(1, max_lag + 1):
+        shifted = s.shift(lag)
+        mask = shifted.notna() & y.notna()
+        if mask.sum() < 10:
+            continue
+        corr = np.corrcoef(shifted[mask], y[mask])[0, 1]
+        if pd.isna(corr):
+            continue
+        if corr > best_pos_r:
+            best_pos_r, best_pos_lag = corr, lag
+        if abs(corr) > abs(best_abs_r):
+            best_abs_r, best_abs_lag = corr, lag
+    return int(best_pos_lag if best_pos_lag is not None and best_pos_r > 0 else best_abs_lag)
+
+
+def _gaussian_lag_kernel(peak_lag: int, max_lag: int = 14) -> np.ndarray:
+    peak_lag = int(max(1, min(max_lag, peak_lag)))
+    lags = np.arange(1, max_lag + 1, dtype=float)
+    sigma = max(1.5, peak_lag / 2.5)
+    weights = np.exp(-0.5 * ((lags - peak_lag) / sigma) ** 2)
+    total = weights.sum()
+    return weights / total if total > 0 else np.repeat(1 / max_lag, max_lag)
+
+
+def _distributed_lag_transform(series: pd.Series, kernel: np.ndarray) -> pd.Series:
+    values = pd.to_numeric(series, errors="coerce").fillna(0).to_numpy(dtype=float)
+    result = np.zeros(len(values), dtype=float)
+    for lag_idx, weight in enumerate(kernel, start=1):
+        shifted = np.roll(values, lag_idx)
+        shifted[:lag_idx] = 0.0
+        result += weight * shifted
+    return pd.Series(result, index=series.index)
+
+
+def fit_dynamic_panel_model(
+    features: pd.DataFrame,
+    outcome_col: str = "revenue",
+    location_id: str = "ALL",
+    max_lag: int = 14,
+) -> dict:
+    result = {
+        "weights": {},
+        "pvalues": {},
+        "conf_int": {},
+        "r_squared": np.nan,
+        "n_obs": 0,
+        "optimal_lags": {},
+        "n_locations": 0,
+        "cumulative_pct": {},
+        "response_curves": {},
+        "social_signals": [],
+        "error": None,
+    }
+    try:
+        import statsmodels.formula.api as smf
+    except ImportError:
+        result["error"] = "statsmodels formula API not installed"
+        return result
+
+    if features.empty:
+        result["error"] = "No data available."
+        return result
+
+    panel_df = features.copy()
+    panel_df["date"] = pd.to_datetime(panel_df["date"], errors="coerce").dt.normalize()
+    panel_df = panel_df[panel_df["location_id"] != "ALL"] if location_id == "ALL" else panel_df[panel_df["location_id"] == location_id]
+    if panel_df.empty:
+        result["error"] = "No data available after filtering."
+        return result
+
+    panel_df = panel_df.sort_values(["location_id", "date"]).reset_index(drop=True)
+    result["n_locations"] = int(panel_df["location_id"].nunique())
+    weighted_signals = ["weighted_promo_signal", "weighted_product_signal", "weighted_event_signal"]
+    use_weighted = any(pd.to_numeric(panel_df[col], errors="coerce").fillna(0).sum() > 0 for col in weighted_signals)
+    social_signals = ["engagement_index"] + (
+        weighted_signals if use_weighted else ["promo_topic_share", "product_topic_share", "event_topic_share"]
+    )
+    result["social_signals"] = social_signals
+
+    daily_source = (
+        panel_df.groupby("date", as_index=False)
+        .agg(
+            outcome=(outcome_col, "sum"),
+            engagement_index=("engagement_index", "mean"),
+            weighted_promo_signal=("weighted_promo_signal", "mean"),
+            weighted_product_signal=("weighted_product_signal", "mean"),
+            weighted_event_signal=("weighted_event_signal", "mean"),
+            promo_topic_share=("promo_topic_share", "mean"),
+            product_topic_share=("product_topic_share", "mean"),
+            event_topic_share=("event_topic_share", "mean"),
+        )
+        .sort_values("date")
+    )
+
+    distributed_daily = daily_source[["date"]].copy()
+    kernels = {}
+    for signal in social_signals:
+        peak_lag = _pick_peak_lag(daily_source[signal], daily_source["outcome"], max_lag=max_lag)
+        kernel = _gaussian_lag_kernel(peak_lag, max_lag=max_lag)
+        result["optimal_lags"][signal] = peak_lag
+        kernels[signal] = kernel
+        distributed_daily[f"dl__{signal}"] = _distributed_lag_transform(daily_source[signal], kernel)
+
+    panel_df = panel_df.merge(distributed_daily, on="date", how="left")
+    outcome_raw = pd.to_numeric(panel_df[outcome_col], errors="coerce").fillna(0).clip(lower=0)
+    panel_df["outcome_log"] = np.log1p(outcome_raw)
+    panel_df["lag_outcome_1"] = panel_df.groupby("location_id")["outcome_log"].shift(1)
+    panel_df["lag_outcome_7"] = panel_df.groupby("location_id")["outcome_log"].shift(7)
+    panel_df["trend_idx"] = (panel_df["date"] - panel_df["date"].min()).dt.days.astype(float)
+    panel_df["dow"] = panel_df["date"].dt.day_name().str[:3]
+    panel_df["month_num"] = panel_df["date"].dt.month.astype(str)
+    panel_df["holiday_flag"] = panel_df["holiday_flag"].astype(float)
+    panel_df["promo_flag"] = panel_df["promo_flag"].astype(float)
+
+    dl_cols = [f"dl__{signal}" for signal in social_signals]
+    baseline_cols = ["lag_outcome_1", "lag_outcome_7", "trend_idx"]
+    standardized_cols = baseline_cols + dl_cols + ["holiday_flag", "promo_flag"]
+    reg_df = panel_df[["date", "location_id", "outcome_log", "dow", "month_num"] + standardized_cols].dropna().copy()
+    if len(reg_df) < 45:
+        result["error"] = f"Too few complete observations after dynamic controls ({len(reg_df)}); need at least 45."
+        return result
+
+    for col in standardized_cols:
+        std = reg_df[col].std()
+        reg_df[f"{col}_z"] = 0.0 if pd.isna(std) or std <= 0 else (reg_df[col] - reg_df[col].mean()) / std
+
+    formula_terms = [f"{col}_z" for col in baseline_cols + dl_cols + ["holiday_flag", "promo_flag"]]
+    formula_terms += ["C(dow)"]
+    if reg_df["month_num"].nunique() > 1:
+        formula_terms += ["C(month_num)"]
+    if reg_df["location_id"].nunique() > 1:
+        formula_terms += ["C(location_id)"]
+
+    try:
+        fitted = smf.ols("outcome_log ~ " + " + ".join(formula_terms), data=reg_df).fit()
+    except Exception as exc:
+        result["error"] = f"Dynamic panel model failed: {exc}"
+        return result
+
+    result["n_obs"] = int(len(reg_df))
+    result["r_squared"] = float(getattr(fitted, "rsquared", np.nan))
+    ci = fitted.conf_int()
+    predictor_map = {signal: f"dl__{signal}_z" for signal in social_signals}
+    predictor_map.update({"holiday_flag": "holiday_flag_z", "promo_flag": "promo_flag_z"})
+    for predictor, model_col in predictor_map.items():
+        beta = float(fitted.params.get(model_col, np.nan))
+        pval = float(fitted.pvalues.get(model_col, np.nan))
+        result["weights"][predictor] = beta
+        result["pvalues"][predictor] = pval
+        if model_col in ci.index:
+            result["conf_int"][predictor] = (float(ci.loc[model_col, 0]), float(ci.loc[model_col, 1]))
+        if predictor in social_signals and not np.isnan(beta):
+            result["cumulative_pct"][predictor] = float((np.exp(beta) - 1) * 100)
+            result["response_curves"][predictor] = [
+                {"lag": lag_idx, "effect_pct": float((np.exp(beta * weight) - 1) * 100)}
+                for lag_idx, weight in enumerate(kernels[predictor], start=1)
+            ]
+    return result
+
+
+def compute_lag_correlations(features: pd.DataFrame) -> pd.DataFrame:
+    if features.empty:
+        return pd.DataFrame(columns=["location_id", "outcome", "signal", "lag", "correlation"])
+
+    signals = [
+        "engagement_index", "promo_topic_share", "product_topic_share", "event_topic_share",
+        "weighted_promo_signal", "weighted_product_signal", "weighted_event_signal",
+    ]
+    outcomes = ["revenue", "transactions"]
+    rows = []
+    for location_id, loc_df in features.groupby("location_id"):
+        loc_df = loc_df.sort_values("date").reset_index(drop=True)
+        numeric = {col: pd.to_numeric(loc_df.get(col, 0), errors="coerce") for col in signals + outcomes}
+        for signal in signals:
+            shifted = pd.concat([numeric[signal].shift(lag).rename(lag) for lag in range(1, 15)], axis=1)
+            for outcome in outcomes:
+                correlations = shifted.corrwith(numeric[outcome])
+                for lag, corr_value in correlations.items():
+                    rows.append({
+                        "location_id": location_id,
+                        "outcome": outcome,
+                        "signal": signal,
+                        "lag": int(lag),
+                        "correlation": float(corr_value) if pd.notna(corr_value) else np.nan,
+                    })
+    return pd.DataFrame(rows)
+
+
+def friendly_label_map() -> dict[str, str]:
+    return {
+        "engagement_index": "Instagram Engagement",
+        "promo_topic_share": "Promotions",
+        "product_topic_share": "Product Features",
+        "event_topic_share": "Events and Holidays",
+        "weighted_promo_signal": "Promo Content x Engagement",
+        "weighted_product_signal": "Product Content x Engagement",
+        "weighted_event_signal": "Event Content x Engagement",
+        "holiday_flag": "Public Holiday",
+        "promo_flag": "In-Store Promotion",
+    }
+
+
+def _confidence_band(abs_corr: float, pvalue: float, n_obs: int) -> str:
+    abs_corr = 0.0 if pd.isna(abs_corr) else float(abs_corr)
+    if pd.isna(pvalue):
+        return "Moderate" if abs_corr >= 0.25 and n_obs >= 90 else "Directional" if abs_corr >= 0.15 else "Low"
+    if pvalue < 0.10 and abs_corr >= 0.20 and n_obs >= 90:
+        return "High"
+    if pvalue < 0.20 and abs_corr >= 0.15 and n_obs >= 60:
+        return "Moderate"
+    if abs_corr >= 0.10 or pvalue < 0.20:
+        return "Directional"
+    return "Low"
+
+
+def _build_predictive_summary(
+    lag_filtered: pd.DataFrame,
+    model: dict,
+    signal_labels: dict[str, str],
+    n_days: int,
+) -> pd.DataFrame:
+    lag_lookup = {
+        signal: grp.dropna(subset=["correlation"]).sort_values("lag")
+        for signal, grp in lag_filtered.groupby("signal")
+    }
+    rows = []
+    for signal in list(dict.fromkeys(["engagement_index"] + list(model.get("weights", {}).keys()))):
+        signal_lags = lag_lookup.get(signal, pd.DataFrame())
+        chosen_lag = model.get("optimal_lags", {}).get(signal, np.nan)
+        chosen_corr = np.nan
+        if not signal_lags.empty:
+            if pd.notna(chosen_lag):
+                lag_match = signal_lags[signal_lags["lag"] == int(chosen_lag)]
+                if not lag_match.empty:
+                    chosen_corr = float(lag_match["correlation"].iloc[0])
+            if pd.isna(chosen_corr):
+                positive = signal_lags[signal_lags["correlation"] > 0]
+                ref = positive.loc[positive["correlation"].idxmax()] if not positive.empty else signal_lags.loc[signal_lags["correlation"].abs().idxmax()]
+                chosen_lag = int(ref["lag"])
+                chosen_corr = float(ref["correlation"])
+
+        beta = float(model.get("weights", {}).get(signal, np.nan))
+        pvalue = float(model.get("pvalues", {}).get(signal, np.nan))
+        if np.isnan(beta) and pd.isna(chosen_corr):
+            continue
+        direction_source = beta if not np.isnan(beta) else chosen_corr
+        rows.append({
+            "signal": signal,
+            "Predictor": signal_labels.get(signal, signal),
+            "Lead Time": chosen_lag,
+            "Direction": "Positive" if direction_source > 0 else "Negative" if direction_source < 0 else "Neutral",
+            "Peak r": chosen_corr,
+            "Std. beta": beta,
+            "pvalue": pvalue,
+            "Confidence": _confidence_band(abs(chosen_corr) if pd.notna(chosen_corr) else np.nan, pvalue, n_days),
+            "_rank": abs(beta) if not np.isnan(beta) else abs(chosen_corr) if pd.notna(chosen_corr) else 0,
+        })
+    if not rows:
+        return pd.DataFrame(columns=["signal", "Predictor", "Lead Time", "Direction", "Peak r", "Std. beta", "Confidence"])
+    return pd.DataFrame(rows).sort_values("_rank", ascending=False).drop(columns="_rank").reset_index(drop=True)
+
+
+def _render_summary_card(title: str, value: str, delta: str | None = None, body: str | None = None) -> None:
+    delta_html = f"<div style='margin-top:8px;color:{STATUS_GOOD};font-weight:700;font-size:0.82rem;'>{delta}</div>" if delta else ""
+    body_html = f"<div style='margin-top:8px;color:{BRAND_MUTED};font-size:0.82rem;line-height:1.45;'>{body}</div>" if body else ""
+    st.markdown(
+        f"""
+        <div style="background:{BRAND_PAPER};border:1px solid {BRAND_BORDER};border-radius:8px;padding:14px;min-height:150px;">
+            <div style="color:{BRAND_MUTED};font-size:0.84rem;font-weight:700;">{title}</div>
+            <div style="color:{BRAND_CHARCOAL};font-size:1.7rem;font-weight:800;line-height:1.1;margin-top:8px;overflow-wrap:anywhere;">{value}</div>
+            {delta_html}
+            {body_html}
+        </div>
+        """,
+        unsafe_allow_html=True,
+    )
+
+
+def render_engagement_analysis_tab(
+    db,
+    selected_locations: list[str],
+    location_map: dict,
+    start_date: str,
+    end_date: str,
+    allow_bertopic: bool = True,
+):
+    st.subheader("Engagement Analysis")
+    st.caption(
+        "Brand-level Instagram activity is compared with selected-location sales. "
+        "Use this as a planning signal, not proof of causation."
+    )
+
+    features, media_df, bertopic_meta = build_engagement_features(
+        db, selected_locations, location_map, start_date, end_date, allow_bertopic=allow_bertopic
+    )
+    if features.empty:
+        st.info("No sales driver data is available for engagement analysis in this date range.")
+        return
+
+    labels = friendly_label_map()
+    scope_options = {"All Selected Locations": "ALL"}
+    for loc_id in selected_locations:
+        if loc_id in set(features["location_id"].astype(str)):
+            scope_options[location_map.get(loc_id, loc_id)] = loc_id
+
+    ctrl1, ctrl2, ctrl3 = st.columns([2, 2, 2])
+    with ctrl1:
+        scope_label = st.selectbox("Sales Scope", list(scope_options.keys()), key="engagement_scope")
+    with ctrl2:
+        outcome_label = st.selectbox("Sales Outcome", ["Revenue", "Transactions"], key="engagement_outcome")
+    with ctrl3:
+        smoothing = st.toggle("7-day rolling average", value=True, key="engagement_smoothing")
+
+    scope_value = scope_options[scope_label]
+    outcome_col = "revenue" if outcome_label == "Revenue" else "transactions"
+    filtered = features[features["location_id"] == scope_value].copy().sort_values("date")
+    if filtered.empty:
+        st.info("No data is available for the selected engagement filters.")
+        return
+
+    n_days = len(filtered)
+    plot_df = filtered.copy()
+    if smoothing:
+        for col in [outcome_col, "engagement_index", "total_engagement"]:
+            plot_df[col] = plot_df[col].rolling(7, min_periods=1).mean()
+
+    total_revenue = filtered["revenue"].sum()
+    total_transactions = filtered["transactions"].sum()
+    total_posts = int(filtered["post_count"].sum())
+    total_views = int(filtered["total_views"].sum())
+    avg_ticket = total_revenue / total_transactions if total_transactions else 0
+    avg_likes = int(filtered["total_likes"].sum() / total_posts) if total_posts else 0
+
+    k1, k2, k3, k4, k5 = st.columns(5)
+    k1.metric("Revenue", format_compact_number(total_revenue, currency=True), help=format_currency(total_revenue))
+    k2.metric("Transactions", format_compact_number(total_transactions), help=format_number(total_transactions))
+    k3.metric("Avg Ticket", format_compact_number(avg_ticket, currency=True), help=format_currency(avg_ticket))
+    k4.metric("Posts", format_number(total_posts))
+    k5.metric("Avg Likes/Post", format_number(avg_likes))
+
+    if media_df.empty:
+        st.info("No Instagram media rows were found for this period. Sales metrics are shown, but social signals are zero.")
+    elif bertopic_meta.get("success"):
+        st.caption(f"Topic classification used BERTopic with {len(bertopic_meta.get('topics', []))} discovered topics.")
+    else:
+        st.caption("Topic classification used the keyword fallback because BERTopic is unavailable or not useful for this sample.")
+
+    lag_correlations = compute_lag_correlations(features)
+    lag_filtered = lag_correlations[
+        (lag_correlations["location_id"] == scope_value)
+        & (lag_correlations["outcome"] == outcome_col)
+    ].copy()
+    lag_filtered["signal_label"] = lag_filtered["signal"].map(labels)
+    model = fit_dynamic_panel_model(features, outcome_col=outcome_col, location_id=scope_value)
+    summary = _build_predictive_summary(lag_filtered, model, labels, n_days)
+
+    st.divider()
+    st.markdown("### Predictive Impact Summary")
+    model_r2 = model.get("r_squared", np.nan)
+    confidence = "High" if model_r2 >= 0.35 and n_days >= 120 else "Moderate" if model_r2 >= 0.20 and n_days >= 75 else "Directional"
+    top_row = summary.iloc[0] if not summary.empty else None
+    c1, c2, c3 = st.columns(3)
+    with c1:
+        if top_row is not None:
+            _render_summary_card(
+                "Top Signal",
+                top_row["Predictor"],
+                delta=f"{int(top_row['Lead Time'])}d lead" if pd.notna(top_row["Lead Time"]) else None,
+                body=f"{top_row['Direction']} relationship; confidence {top_row['Confidence']}.",
+            )
+        else:
+            _render_summary_card("Top Signal", "No clear signal")
+    with c2:
+        _render_summary_card(
+            "Evidence Level",
+            confidence,
+            delta=f"R2 {model_r2:.2f}" if not np.isnan(model_r2) else None,
+            body=f"{n_days} days in the selected scope.",
+        )
+    with c3:
+        _render_summary_card(
+            "Instagram Coverage",
+            format_number(total_posts),
+            delta=f"{format_compact_number(total_views)} views" if total_views else None,
+            body="Posts are brand-level and shared across stores.",
+        )
+
+    if model.get("error"):
+        st.warning(f"Dynamic model could not be fit: {model['error']}")
+
+    if not summary.empty:
+        display_summary = summary.copy()
+        display_summary["Lead Time"] = display_summary["Lead Time"].map(lambda v: f"{int(v)}d" if pd.notna(v) else "")
+        display_summary["Peak r"] = display_summary["Peak r"].map(lambda v: f"{v:+.2f}" if pd.notna(v) else "")
+        display_summary["Std. beta"] = display_summary["Std. beta"].map(lambda v: f"{v:+.2f}" if not np.isnan(v) else "")
+        st.dataframe(
+            display_summary[["Predictor", "Lead Time", "Direction", "Peak r", "Std. beta", "Confidence"]],
+            hide_index=True,
+            width="stretch",
+        )
+
+    st.divider()
+    st.markdown("### Sales and Instagram Activity")
+    fig_ts = go.Figure()
+    fig_ts.add_trace(go.Scatter(
+        x=plot_df["date"],
+        y=plot_df[outcome_col],
+        mode="lines+markers",
+        name=outcome_label,
+        line=dict(color=BRAND_BURGUNDY, width=3),
+        yaxis="y",
+    ))
+    fig_ts.add_trace(go.Bar(
+        x=plot_df["date"],
+        y=plot_df["engagement_index"],
+        name="Instagram Engagement Index",
+        marker_color=with_alpha(BRAND_SLATE, 0.35),
+        yaxis="y2",
+    ))
+    fig_ts.update_layout(
+        title=f"{outcome_label} vs Instagram Engagement",
+        height=430,
+        hovermode="x unified",
+        yaxis=dict(title=outcome_label, tickprefix="$" if outcome_col == "revenue" else ""),
+        yaxis2=dict(title="Engagement Index", overlaying="y", side="right", showgrid=False),
+        legend=dict(orientation="h", y=1.1, x=0),
+    )
+    apply_plotly_theme(fig_ts)
+    st.plotly_chart(fig_ts, width="stretch")
+
+    st.markdown("### Lead-Lag Correlation")
+    heatmap_source = (
+        lag_filtered.dropna(subset=["correlation"])
+        .pivot(index="signal_label", columns="lag", values="correlation")
+        .reindex([labels[s] for s in [
+            "engagement_index", "promo_topic_share", "product_topic_share", "event_topic_share",
+            "weighted_promo_signal", "weighted_product_signal", "weighted_event_signal",
+        ]])
+    )
+    if heatmap_source.dropna(how="all").empty:
+        st.info("No lag-correlation signal is available for this date range.")
+    else:
+        fig_hm = px.imshow(
+            heatmap_source,
+            labels=dict(x="Days After Instagram Activity", y="Signal", color="Correlation"),
+            color_continuous_scale="RdBu",
+            zmin=-1,
+            zmax=1,
+            aspect="auto",
+            title=f"Instagram to {outcome_label}: Correlation at Each Lag",
+            text_auto=".2f",
+        )
+        fig_hm.update_layout(height=520, margin=dict(l=180, r=90, t=70, b=60))
+        apply_plotly_theme(fig_hm)
+        st.plotly_chart(fig_hm, width="stretch")
+
+
 def main():
     # Header
     st.title("DoughZone Analytics Dashboard")
@@ -982,25 +1926,59 @@ The generated SQL shown in the Q&A section matches the production query pattern.
         # labor_data = db.get_labor_analytics(selected_locations, start_date, end_date)
         drivers_data = db.get_daily_drivers_data(start_date, end_date)
         customer_data = db.get_customer_analytics(selected_locations, start_date, end_date)
-        menu_recommendations = db.get_menu_recommendations(selected_locations, start_date, end_date)
-        bundle_data = db.get_bundle_opportunities(selected_locations, start_date, end_date)
-        promo_data = db.get_promo_opportunities(selected_locations, start_date, end_date)
-        price_margin_data = db.get_price_margin_candidates(selected_locations, start_date, end_date)
-        dow_data = db.get_day_of_week_index(selected_locations, start_date, end_date)
-        rfm_data = db.get_rfm_segments(selected_locations, start_date, end_date)
+        menu_args = (selected_locations, start_date, end_date)
+        menu_recommendations = _call_optional_df(
+            db,
+            "get_menu_recommendations",
+            lambda: _build_menu_recommendations_fallback(menu_data),
+            *menu_args,
+        )
+        bundle_data = _call_optional_df(
+            db,
+            "get_bundle_opportunities",
+            lambda: _empty_df(BUNDLE_OPPORTUNITY_COLUMNS),
+            *menu_args,
+        )
+        promo_data = _call_optional_df(
+            db,
+            "get_promo_opportunities",
+            lambda: _empty_df(PROMO_OPPORTUNITY_COLUMNS),
+            *menu_args,
+        )
+        price_margin_data = _call_optional_df(
+            db,
+            "get_price_margin_candidates",
+            lambda: menu_recommendations[
+                menu_recommendations["recommended_action"].isin(["Re-price", "Rework", "Remove"])
+            ].sort_values(["recommended_action", "net_revenue"], ascending=[True, False]),
+            *menu_args,
+        )
+        dow_data = _call_optional_df(
+            db,
+            "get_day_of_week_index",
+            lambda: _empty_df(["day", "index", "avg_revenue"]),
+            *menu_args,
+        )
+        rfm_data = _call_optional_df(
+            db,
+            "get_rfm_segments",
+            lambda: _empty_df(["segment", "n_customers", "pct", "avg_total_spend", "avg_visits", "avg_recency_days"]),
+            *menu_args,
+        )
     except Exception as e:
         st.error(f"Error loading data: {e}")
         logger.error(f"Data load error: {e}", exc_info=True)
         return
 
     # Horizontal tab navigation (replaces sidebar buttons)
-    tab_overview, tab_sales, tab_menu, tab_menu_opt, tab_drivers, tab_customers = st.tabs([
+    tab_overview, tab_sales, tab_menu, tab_menu_opt, tab_drivers, tab_customers, tab_engagement = st.tabs([
         "Overview",
         "Sales Analytics",
         "Menu Performance",
         "Menu Optimization",
         "Revenue Drivers",
         "Customer Analytics",
+        "Engagement Analysis",
     ])
 
     # TAB 1: OVERVIEW (with LLM Ask feature at top)
@@ -1924,6 +2902,16 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 f"{total_orders_in_period:,.0f} orders in this period. "
                 "Dine-in and in-store orders typically have no customer data."
             )
+
+    with tab_engagement:
+        render_engagement_analysis_tab(
+            db=db,
+            selected_locations=selected_locations,
+            location_map=location_map,
+            start_date=start_date,
+            end_date=end_date,
+            allow_bertopic=True,
+        )
 
     # TAB 7: LABOR ANALYTICS
     # NOTE: Labor Analytics hidden here — labor data access not yet available.

@@ -957,6 +957,68 @@ class DemoDBManager:
                 result[name] = value
         return result
 
+    def get_instagram_media(self, start_date: str, end_date: str) -> pd.DataFrame:
+        """Return synthetic Instagram post data for the given date range."""
+        try:
+            start_dt = pd.to_datetime(str(start_date), errors="coerce")
+            end_dt = pd.to_datetime(str(end_date), errors="coerce")
+        except Exception:
+            return pd.DataFrame()
+
+        if pd.isna(start_dt) or pd.isna(end_dt):
+            return pd.DataFrame()
+
+        rng = np.random.default_rng(seed=20250901)
+        all_dates = pd.date_range(start_dt, end_dt, freq="D")
+        post_dates = [d for d in all_dates if d.weekday() in (1, 3, 5) or rng.random() < 0.15]
+
+        captions = [
+            "Our signature XLB soup dumplings are made fresh every morning. Come taste the difference! 🥟 #DoughZone #SoupDumplings",
+            "Weekend special: buy 2 orders of dumplings, get a free milk tea! 🧋 #WeekendDeal #DoughZone",
+            "Thank you to our amazing Downtown community for your continued support! 🙏 #LocalLove #DoughZone",
+            "New on the menu: Spicy Chili Oil Wontons 🔥 #NewItem #DoughZone #SpicyFood",
+            "It's Happy Hour! 3-6 PM daily — half off selected appetizers. Come join us! #HappyHour #DoughZone",
+            "Our hand-folded potstickers: 48 folds per piece, every single time. #QualityMatters #DoughZone",
+            "Grand opening of our Westside location is THIS Saturday! Come celebrate with us 🎉 #GrandOpening #DoughZone",
+            "Lunar New Year special menu is here! Limited time only 🧧 #LunarNewYear #DoughZone",
+            "Dan Dan Noodles with our house-made chili crisp. A fan favorite for a reason. 🌶️ #NoodleLovers",
+            "Sunday family dinner sorted ✅ Our family platters serve 4-6 people perfectly. #FamilyDinner",
+            "Catering for your next event? We've got you covered. DM for inquiries! #Catering #DoughZone",
+            "Thank you for 1,000 followers! 🎊 As a treat, use code THANKS10 for 10% off your next order. #Milestone",
+            "Fresh scallion pancakes just out of the pan 🥞 Order while they're hot! #DoughZone #Crispy",
+            "Valentine's Day dinner for two? Our date night bundle is perfect. ❤️ #ValentinesDay #DoughZone",
+            "Community spotlight: we donated 200 meals to the local shelter this month. 💚 #GivingBack",
+            "Fried rice Friday is officially a thing 🍚 #FriedRiceFriday #DoughZone",
+            "BIG PROMO: Free delivery all weekend on orders over $25! 🚚 #FreeDelivery #DoughZone",
+            "Our beef noodle soup is back for the season. Rich, slow-cooked broth. 🍜 #SeasonalMenu",
+            "Pro tip: pair your XLB with our ginger-vinegar dipping sauce for the best experience 🤌 #FoodTips",
+            "Mother's Day brunch special — book your table now! 🌸 #MothersDay #DoughZone",
+        ]
+
+        rows = []
+        for i, d in enumerate(post_dates):
+            cap = captions[i % len(captions)]
+            base_likes = int(rng.integers(80, 400))
+            base_views = int(rng.integers(800, 5000))
+            rows.append({
+                "id": f"demo_post_{i:04d}",
+                "date": d,
+                "caption": cap,
+                "media_type": rng.choice(["IMAGE", "CAROUSEL_ALBUM", "REEL"], p=[0.5, 0.3, 0.2]),
+                "permalink": f"https://www.instagram.com/p/demo{i:04d}/",
+                "likes": base_likes,
+                "comments_count": int(rng.integers(2, 30)),
+                "views": base_views,
+                "reach": int(base_views * rng.uniform(0.6, 0.9)),
+                "saved": int(rng.integers(5, 60)),
+                "shares": int(rng.integers(3, 40)),
+                "total_interactions": None,
+            })
+
+        df = pd.DataFrame(rows)
+        mask = (df["date"] >= start_dt) & (df["date"] <= end_dt)
+        return df[mask].reset_index(drop=True)
+
     # ---- Write / import methods (silently ignored) -------------------------
 
     def log_import(self, *args, **kwargs):
