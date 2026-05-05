@@ -1522,16 +1522,13 @@ def _build_predictive_summary(
 def _render_summary_card(title: str, value: str, delta: str | None = None, body: str | None = None) -> None:
     delta_html = f"<div style='margin-top:8px;color:{STATUS_GOOD};font-weight:700;font-size:0.82rem;'>{delta}</div>" if delta else ""
     body_html = f"<div style='margin-top:8px;color:{BRAND_MUTED};font-size:0.82rem;line-height:1.45;'>{body}</div>" if body else ""
-    st.markdown(
-        f"""
-        <div style="background:{BRAND_PAPER};border:1px solid {BRAND_BORDER};border-radius:8px;padding:14px;min-height:150px;">
-            <div style="color:{BRAND_MUTED};font-size:0.84rem;font-weight:700;">{title}</div>
-            <div style="color:{BRAND_CHARCOAL};font-size:1.7rem;font-weight:800;line-height:1.1;margin-top:8px;overflow-wrap:anywhere;">{value}</div>
-            {delta_html}
-            {body_html}
-        </div>
-        """,
-        unsafe_allow_html=True,
+    st.html(
+        f"<div style='background:{BRAND_PAPER};border:1px solid {BRAND_BORDER};border-radius:8px;padding:14px;min-height:150px;'>"
+        f"<div style='color:{BRAND_MUTED};font-size:0.84rem;font-weight:700;'>{title}</div>"
+        f"<div style='color:{BRAND_CHARCOAL};font-size:1.7rem;font-weight:800;line-height:1.1;margin-top:8px;overflow-wrap:anywhere;'>{value}</div>"
+        f"{delta_html}"
+        f"{body_html}"
+        f"</div>"
     )
 
 
