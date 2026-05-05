@@ -630,6 +630,77 @@ class BigQueryManager:
 
         return total_inserted
 
+    def get_menu_engineering(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # TODO: implement SQL equivalent: median split on item order_count and revenue.
+        return pd.DataFrame(
+            columns=["item", "category", "order_count", "revenue", "avg_price", "quadrant"]
+        )
+
+    def get_menu_recommendations(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # Dummy app keeps live Objective 5 SQL disabled; demo mode supplies synthetic rows.
+        return pd.DataFrame(
+            columns=[
+                "canonical_name", "display_name", "category", "quadrant", "popularity",
+                "net_revenue", "total_qty", "orders_with_item", "avg_unit_price",
+                "avg_net_rev_per_unit", "avg_est_margin_per_unit", "est_margin_pct",
+                "discount_rate", "cost_coverage", "margin_source",
+                "recommended_action", "confidence",
+            ]
+        )
+
+    def get_bundle_opportunities(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # Dummy app keeps live Objective 5 SQL disabled; demo mode supplies synthetic rows.
+        return pd.DataFrame(
+            columns=[
+                "item_a", "item_b", "display_a", "display_b", "category_a", "category_b",
+                "pair_type", "pair_count", "support", "orders_a", "orders_b",
+                "confidence_b_given_a", "confidence_a_given_b", "lift",
+            ]
+        )
+
+    def get_promo_opportunities(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # Dummy app keeps live Objective 5 SQL disabled; demo mode supplies synthetic rows.
+        return pd.DataFrame(
+            columns=[
+                "canonical_name", "display_name", "category", "store_days",
+                "discount_days", "avg_qty_discounted_days", "avg_qty_regular_days",
+                "qty_lift_on_discount_days", "unique_prices", "min_price", "max_price",
+                "price_range", "opportunity_type",
+            ]
+        )
+
+    def get_price_margin_candidates(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        recommendations = self.get_menu_recommendations(location_ids, start_date, end_date)
+        if recommendations.empty:
+            return pd.DataFrame()
+        return recommendations[
+            recommendations["recommended_action"].isin(["Re-price", "Rework", "Remove"])
+        ].sort_values(["recommended_action", "net_revenue"], ascending=[True, False])
+
+    def get_day_of_week_index(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # TODO: implement SQL equivalent: avg daily revenue by weekday, normalized to index.
+        return pd.DataFrame(columns=["day", "index", "avg_revenue"])
+
+    def get_rfm_segments(
+        self, location_ids: List[str], start_date: str, end_date: str
+    ) -> pd.DataFrame:
+        # TODO: implement SQL equivalent: recency/frequency/monetary segment summary.
+        return pd.DataFrame(
+            columns=["segment", "n_customers", "pct", "avg_total_spend", "avg_visits", "avg_recency_days"]
+        )
+
 
 # Convenience factory
 def get_bq_manager() -> BigQueryManager:

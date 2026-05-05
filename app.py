@@ -39,6 +39,8 @@ STATUS_GOOD = "#6A8F63"
 STATUS_WARN = "#C18B2F"
 STATUS_BAD = "#A84A3A"
 STATUS_NEUTRAL = "#8A7A70"
+DRIVER_POSITIVE = "#B22222"
+DRIVER_NEGATIVE = "#2F5F8F"
 
 # Page configuration
 st.set_page_config(
@@ -58,6 +60,7 @@ st.markdown("""
         --dz-charcoal: #2F241F;
         --dz-muted: #7A6A61;
         --dz-border: #E6D8C3;
+        font-size: 16px;
     }
     .stApp {
         background-color: var(--dz-ivory);
@@ -78,7 +81,7 @@ st.markdown("""
     }
     h1, h2, h3, h4, h5, h6 {
         color: var(--dz-charcoal);
-        letter-spacing: -0.02em;
+        letter-spacing: 0;
     }
     h1 {
         margin-bottom: 0.35rem;
@@ -91,12 +94,12 @@ st.markdown("""
         border: 1px solid var(--dz-border);
     }
     .metric-value {
-        font-size: 28px;
+        font-size: 1.75rem;
         font-weight: bold;
         color: var(--dz-charcoal);
     }
     .metric-label {
-        font-size: 12px;
+        font-size: 0.75rem;
         color: var(--dz-muted);
         margin-bottom: 10px;
     }
@@ -199,6 +202,67 @@ st.markdown("""
     }
     .stCaption {
         color: var(--dz-muted) !important;
+    }
+    @media (min-width: 1400px) {
+        :root {
+            font-size: 17px;
+        }
+        .block-container {
+            max-width: 1500px;
+            padding-left: 3rem;
+            padding-right: 3rem;
+        }
+        [data-testid="stSidebar"] {
+            min-width: 20rem;
+        }
+        [data-testid="stMarkdownContainer"] p,
+        [data-testid="stMarkdownContainer"] li,
+        label,
+        .stButton > button,
+        .stTextInput input,
+        .stDateInput input,
+        .stMultiSelect div[data-baseweb="select"],
+        .stSelectbox div[data-baseweb="select"] {
+            font-size: 1rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 2rem !important;
+        }
+        [data-testid="stMetricLabel"] p {
+            font-size: 0.95rem !important;
+        }
+        .stTabs [data-baseweb="tab"] p,
+        .stTabs button[data-baseweb="tab"] p {
+            font-size: 1.12rem !important;
+        }
+    }
+    @media (min-width: 1900px) {
+        :root {
+            font-size: 18px;
+        }
+        .block-container {
+            max-width: 1800px;
+            padding-left: 4rem;
+            padding-right: 4rem;
+        }
+        [data-testid="stSidebar"] {
+            min-width: 22rem;
+        }
+        h1 {
+            font-size: 2.6rem !important;
+        }
+        h2 {
+            font-size: 2rem !important;
+        }
+        h3 {
+            font-size: 1.55rem !important;
+        }
+        [data-testid="stMetricValue"] {
+            font-size: 2.2rem !important;
+        }
+        [data-testid="stMetricLabel"] p {
+            font-size: 1rem !important;
+        }
     }
     /* Mobile: stack columns vertically */
     @media (max-width: 768px) {
@@ -306,8 +370,8 @@ def apply_plotly_theme(fig):
     fig.update_layout(
         paper_bgcolor=BRAND_PAPER,
         plot_bgcolor=BRAND_PAPER,
-        font=dict(color=BRAND_CHARCOAL, size=13),
-        title_font=dict(color=BRAND_CHARCOAL, size=20),
+        font=dict(color=BRAND_CHARCOAL, size=15),
+        title_font=dict(color=BRAND_CHARCOAL, size=22),
         legend=dict(
             bgcolor="rgba(255, 253, 252, 0.92)",
             bordercolor=BRAND_BORDER,
@@ -428,7 +492,7 @@ def _render_alerts(sales_data: pd.DataFrame, inventory_data: pd.DataFrame, labor
         d = pd.to_datetime(str(date), format="%Y%m%d", errors="coerce")
         return d.strftime("%m/%d") if not pd.isna(d) else str(date)
 
-    st.subheader("⚠️ Alerts")
+    st.subheader("Alerts")
     any_alerts = False
 
     # --- Inventory alerts ---
@@ -439,22 +503,22 @@ def _render_alerts(sales_data: pd.DataFrame, inventory_data: pd.DataFrame, labor
         if critical_items:
             any_alerts = True
             visible, hidden = critical_items[:MAX_VISIBLE], critical_items[MAX_VISIBLE:]
-            st.error(f"🚨 Inventory critical: {', '.join(visible)}" + (f" (+{len(hidden)} more)" if hidden else ""))
+            st.error(f"Inventory critical: {', '.join(visible)}" + (f" (+{len(hidden)} more)" if hidden else ""))
             if hidden:
                 with st.expander(f"Show all {len(critical_items)} critical items"):
                     for item in hidden:
                         st.write(f"• {item}")
-            st.caption("See 📦 Inventory tab for details")
+            st.caption("Inventory detail view is not currently shown in the app.")
 
         if low_items:
             any_alerts = True
             visible, hidden = low_items[:MAX_VISIBLE], low_items[MAX_VISIBLE:]
-            st.warning(f"⚠️ Inventory low: {', '.join(visible)}" + (f" (+{len(hidden)} more)" if hidden else ""))
+            st.warning(f"Inventory low: {', '.join(visible)}" + (f" (+{len(hidden)} more)" if hidden else ""))
             if hidden:
                 with st.expander(f"Show all {len(low_items)} low-stock items"):
                     for item in hidden:
                         st.write(f"• {item}")
-            st.caption("See 📦 Inventory tab for details")
+            st.caption("Inventory detail view is not currently shown in the app.")
 
     # --- Overtime alerts ---
     if not labor_data.empty and 'overtime_hours' in labor_data.columns:
@@ -464,39 +528,94 @@ def _render_alerts(sales_data: pd.DataFrame, inventory_data: pd.DataFrame, labor
             any_alerts = True
             visible_ot, hidden_ot = flagged.iloc[:MAX_VISIBLE], flagged.iloc[MAX_VISIBLE:]
             for date, hrs in visible_ot.items():
-                st.warning(f"⏱️ Overtime spike on {_fmt_date(date)}: {hrs:.1f} hrs total")
+                st.warning(f"Overtime spike on {_fmt_date(date)}: {hrs:.1f} hrs total")
             if not hidden_ot.empty:
                 with st.expander(f"Show {len(hidden_ot)} more overtime days"):
                     for date, hrs in hidden_ot.items():
                         st.write(f"• {_fmt_date(date)}: {hrs:.1f} hrs")
-            st.caption("See 👥 Labor Analytics tab for details")
-
-    # --- Tip rate alerts ---
-    if not sales_data.empty and len(sales_data) >= 3 and 'tips' in sales_data.columns:
-        revenue = sales_data['revenue'].replace(0, pd.NA)
-        tip_rate = sales_data['tips'] / revenue
-        mean_rate = tip_rate.mean()
-        std_rate = tip_rate.std()
-        if std_rate and std_rate > 0:
-            flagged = sales_data[tip_rate < (mean_rate - std_rate)].copy()
-            flagged['_tip_rate'] = tip_rate[flagged.index]
-            flagged = flagged.sort_values('_tip_rate')  # worst first
-            if not flagged.empty:
-                any_alerts = True
-                visible_tips, hidden_tips = flagged.iloc[:MAX_VISIBLE], flagged.iloc[MAX_VISIBLE:]
-                for _, row in visible_tips.iterrows():
-                    label = _fmt_date(row['date'])
-                    actual = (row['tips'] / row['revenue'] * 100) if row['revenue'] else 0
-                    st.warning(f"📉 Low tip rate on {label}: {actual:.1f}% (avg {mean_rate*100:.1f}%)")
-                if not hidden_tips.empty:
-                    with st.expander(f"Show {len(hidden_tips)} more tip-rate days"):
-                        for _, row in hidden_tips.iterrows():
-                            actual = (row['tips'] / row['revenue'] * 100) if row['revenue'] else 0
-                            st.write(f"• {_fmt_date(row['date'])}: {actual:.1f}%")
-                st.caption("See 💰 Sales Analytics tab for details")
+            st.caption("Labor analytics are not currently shown in the app.")
 
     if not any_alerts:
         st.success("No alerts for this period")
+
+
+def _render_tip_breakdown(sales_data: pd.DataFrame):
+    """Render channel-aware tip percentages without treating API orders as service alerts."""
+    st.subheader("Tip Breakdown")
+
+    required = {
+        "dine_in_orders", "dine_in_subtotal", "dine_in_tips", "dine_in_zero_tip_orders",
+        "api_orders", "api_subtotal", "api_tips", "api_zero_tip_orders",
+    }
+    if sales_data.empty or not required.issubset(sales_data.columns):
+        st.info("Tip breakdown is not available for this data source.")
+        return
+
+    def _sum(col):
+        return float(sales_data[col].fillna(0).sum()) if col in sales_data.columns else 0.0
+
+    def _rate(num, den):
+        return num / den if den else 0.0
+
+    rows = []
+    for label, prefix in [
+        ("Dine-in-like", "dine_in"),
+        ("API", "api"),
+        ("Delivery", "delivery"),
+        ("Takeout", "takeout"),
+    ]:
+        orders = _sum(f"{prefix}_orders")
+        subtotal = _sum(f"{prefix}_subtotal")
+        tips = _sum(f"{prefix}_tips")
+        zero_tips = _sum(f"{prefix}_zero_tip_orders")
+        if orders <= 0 and subtotal <= 0:
+            continue
+        rows.append({
+            "Channel": label,
+            "Orders": int(orders),
+            "Tip % of Subtotal": _rate(tips, subtotal) * 100,
+            "Zero-Tip Orders": _rate(zero_tips, orders) * 100,
+            "Tips": tips,
+        })
+
+    if not rows:
+        st.info("No tip-eligible channel data available for the selected period.")
+        return
+
+    dine_row = next((r for r in rows if r["Channel"] == "Dine-in-like"), None)
+    if dine_row:
+        dine_rate = dine_row["Tip % of Subtotal"]
+        zero_tip_rate = dine_row["Zero-Tip Orders"]
+        if dine_rate < 13 or zero_tip_rate >= 25:
+            st.error(
+                f"Dine-in-like tip rate: {dine_rate:.1f}% of subtotal; "
+                f"{zero_tip_rate:.1f}% of orders have no recorded tip."
+            )
+        elif dine_rate < 15 or zero_tip_rate >= 18:
+            st.warning(
+                f"Dine-in-like tip rate: {dine_rate:.1f}% of subtotal; "
+                f"{zero_tip_rate:.1f}% of orders have no recorded tip."
+            )
+        else:
+            st.success(
+                f"Dine-in-like tip rate: {dine_rate:.1f}% of subtotal; "
+                f"{zero_tip_rate:.1f}% zero-tip orders."
+            )
+
+    display = pd.DataFrame(rows)
+    st.dataframe(
+        display,
+        hide_index=True,
+        width="stretch",
+        column_config={
+            "Channel": "Channel",
+            "Orders": st.column_config.NumberColumn("Orders", format="%d"),
+            "Tip % of Subtotal": st.column_config.NumberColumn("Tip % of Subtotal", format="%.1f%%"),
+            "Zero-Tip Orders": st.column_config.NumberColumn("Zero-Tip Orders", format="%.1f%%"),
+            "Tips": st.column_config.NumberColumn("Tips", format="$%.2f"),
+        },
+    )
+    st.caption("API and delivery/takeout channels are context; dine-in-like is the service-focused signal.")
 
 
 def show_clarification_ui(ambiguity_result: "AmbiguityResult"):
@@ -842,18 +961,25 @@ The generated SQL shown in the Q&A section matches the production query pattern.
         # labor_data = db.get_labor_analytics(selected_locations, start_date, end_date)
         drivers_data = db.get_daily_drivers_data(start_date, end_date)
         customer_data = db.get_customer_analytics(selected_locations, start_date, end_date)
+        menu_recommendations = db.get_menu_recommendations(selected_locations, start_date, end_date)
+        bundle_data = db.get_bundle_opportunities(selected_locations, start_date, end_date)
+        promo_data = db.get_promo_opportunities(selected_locations, start_date, end_date)
+        price_margin_data = db.get_price_margin_candidates(selected_locations, start_date, end_date)
+        dow_data = db.get_day_of_week_index(selected_locations, start_date, end_date)
+        rfm_data = db.get_rfm_segments(selected_locations, start_date, end_date)
     except Exception as e:
         st.error(f"Error loading data: {e}")
         logger.error(f"Data load error: {e}", exc_info=True)
         return
 
     # Horizontal tab navigation (replaces sidebar buttons)
-    tab_overview, tab_sales, tab_menu, tab_inventory, tab_customers = st.tabs([
-        "📈 Overview",
-        "💰 Sales Analytics",
-        "🍔 Menu Performance",
-        "📊 Revenue Drivers",
-        "👤 Customer Analytics",
+    tab_overview, tab_sales, tab_menu, tab_menu_opt, tab_drivers, tab_customers = st.tabs([
+        "Overview",
+        "Sales Analytics",
+        "Menu Performance",
+        "Menu Optimization",
+        "Revenue Drivers",
+        "Customer Analytics",
     ])
 
     # TAB 1: OVERVIEW (with LLM Ask feature at top)
@@ -1006,7 +1132,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
         st.divider()
 
         # Part 2: Summary Metrics section
-        st.subheader("📊 Summary Metrics")
+        st.subheader("Summary Metrics")
 
         if not sales_data.empty:
             col1, col2, col3, col4 = st.columns(4)
@@ -1052,6 +1178,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             )
             fig_revenue.update_layout(hovermode='x unified', height=400, xaxis_tickformat="%m/%d/%Y")
             fig_revenue.update_xaxes(type="date")
+            fig_revenue.update_yaxes(tickprefix="$", tickformat=",.0f")
             fig_revenue.update_traces(line_color=BRAND_BURGUNDY, marker_color=BRAND_BURGUNDY)
             apply_plotly_theme(fig_revenue)
 
@@ -1062,23 +1189,27 @@ The generated SQL shown in the Q&A section matches the production query pattern.
 
             with col1:
                 fig_orders = go.Figure(go.Pie(
-                    labels=['Takeout / In-Store', 'Delivery', 'Dine-In'],
+                    labels=['Dine-in-like', 'API', 'Delivery', 'Takeout / Pickup', 'Other'],
                     values=[
-                        sales_data_overview['takeout_orders'].sum(),
-                        sales_data_overview['delivery_orders'].sum(),
                         sales_data_overview['dine_in_orders'].sum(),
+                        sales_data_overview.get('api_orders', pd.Series(dtype=float)).sum(),
+                        sales_data_overview['delivery_orders'].sum(),
+                        sales_data_overview['takeout_orders'].sum(),
+                        sales_data_overview.get('other_orders', pd.Series(dtype=float)).sum(),
                     ],
                     textinfo='percent+label',
                 ))
                 fig_orders.update_layout(title="Order Type Distribution", height=350)
                 fig_orders.update_traces(
-                    marker=dict(colors=[BRAND_BURGUNDY, BRAND_GOLD, BRAND_SLATE])
+                    marker=dict(colors=[BRAND_BURGUNDY, BRAND_SLATE, BRAND_GOLD, STATUS_NEUTRAL, BRAND_MUTED])
                 )
                 apply_plotly_theme(fig_orders)
                 st.plotly_chart(fig_orders, width='stretch')
 
             with col2:
                 _render_alerts(sales_data_overview, inventory_data, labor_data)
+                st.divider()
+                _render_tip_breakdown(sales_data_overview)
 
     # TAB 2: SALES ANALYTICS
     with tab_sales:
@@ -1112,7 +1243,13 @@ The generated SQL shown in the Q&A section matches the production query pattern.
             fig_comparison.update_layout(
                 title="Revenue vs Orders",
                 xaxis=dict(title='Date', type="date", tickformat="%m/%d/%Y"),
-                yaxis=dict(title='Revenue ($)', title_font=dict(color=BRAND_BURGUNDY), tickfont=dict(color=BRAND_BURGUNDY)),
+                yaxis=dict(
+                    title='Revenue ($)',
+                    title_font=dict(color=BRAND_BURGUNDY),
+                    tickfont=dict(color=BRAND_BURGUNDY),
+                    tickprefix="$",
+                    tickformat=",.0f",
+                ),
                 yaxis2=dict(title='Orders', title_font=dict(color=BRAND_SLATE), tickfont=dict(color=BRAND_SLATE), overlaying='y', side='right'),
                 hovermode='x unified',
                 height=400
@@ -1149,6 +1286,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 )
                 fig_tips.update_layout(xaxis_tickformat="%m/%d/%Y")
                 fig_tips.update_xaxes(type="date")
+                fig_tips.update_yaxes(tickprefix="$", tickformat=",.0f")
                 fig_tips.update_traces(marker_color=BRAND_GOLD)
                 apply_plotly_theme(fig_tips)
 
@@ -1164,10 +1302,45 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 )
                 fig_discounts.update_layout(xaxis_tickformat="%m/%d/%Y")
                 fig_discounts.update_xaxes(type="date")
+                fig_discounts.update_yaxes(tickprefix="$", tickformat=",.0f")
                 fig_discounts.update_traces(marker_color=STATUS_BAD)
                 apply_plotly_theme(fig_discounts)
 
                 st.plotly_chart(fig_discounts, width='stretch')
+
+            if not dow_data.empty:
+                st.subheader("Day-of-Week Sales Pattern")
+                dow_colors = [
+                    BRAND_BURGUNDY if idx >= 1.0 else BRAND_SLATE
+                    for idx in dow_data["index"]
+                ]
+                fig_dow = go.Figure(go.Bar(
+                    x=dow_data["day"],
+                    y=dow_data["index"],
+                    marker_color=dow_colors,
+                    text=dow_data["index"].map(lambda v: f"{v:.2f}x"),
+                    textposition="outside",
+                ))
+                fig_dow.add_hline(
+                    y=1.0,
+                    line_dash="dash",
+                    line_color=STATUS_NEUTRAL,
+                    annotation_text="Average (1.0x)",
+                    annotation_position="right",
+                )
+                fig_dow.update_layout(
+                    title="Revenue Index by Day of Week",
+                    xaxis_title="Day",
+                    yaxis_title="Revenue Index (1.0 = avg day)",
+                    height=380,
+                    showlegend=False,
+                )
+                apply_plotly_theme(fig_dow)
+                st.plotly_chart(fig_dow, width="stretch")
+                st.caption(
+                    "Index = average daily revenue for that day divided by overall daily average. "
+                    "Burgundy bars are above-average days; slate bars are below."
+                )
 
     # TAB 3: MENU PERFORMANCE
     with tab_menu:
@@ -1187,11 +1360,12 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     title="Top 15 Items by Revenue",
                     labels={'revenue': 'Revenue ($)', 'item': 'Item'}
                 )
+                fig_menu.update_xaxes(tickprefix="$", tickformat=",.0f")
                 fig_menu.update_traces(marker_color=BRAND_BURGUNDY)
                 apply_plotly_theme(fig_menu)
                 st.plotly_chart(fig_menu, width='stretch')
 
-            with col1:
+            with col2:
                 # Order count by item
                 menu_by_orders = menu_data.sort_values('order_count', ascending=True).tail(15)
                 fig_orders = px.bar(
@@ -1264,7 +1438,205 @@ The generated SQL shown in the Q&A section matches the production query pattern.
     #         st.info("No inventory data available for selected date")
     # --- END INVENTORY STUB ---
 
-    with tab_inventory:
+    with tab_menu_opt:
+        st.subheader("Menu Optimization")
+        st.caption(
+            "Objective 5 recommendations from synthetic item sales, discount exposure, inventory cost proxies, "
+            "and basket co-occurrence. Discount exposure uses order-level discounts as a promotion proxy."
+        )
+
+        if menu_recommendations.empty:
+            st.info("No menu optimization data available for the selected date range.")
+        else:
+            action_order = ["Promote", "Bundle", "Re-price", "Rework", "Remove"]
+            action_counts = menu_recommendations["recommended_action"].value_counts()
+            metric_cols = st.columns(len(action_order))
+            for col, action in zip(metric_cols, action_order):
+                col.metric(action, format_number(action_counts.get(action, 0)))
+
+            st.divider()
+
+            rec_plot = menu_recommendations.copy()
+            rec_plot["margin_axis"] = rec_plot["avg_est_margin_per_unit"].fillna(
+                rec_plot["avg_net_rev_per_unit"]
+            )
+            rec_plot["margin_label"] = rec_plot["margin_source"].fillna("Revenue/unit proxy")
+            rec_plot = rec_plot.dropna(subset=["popularity", "margin_axis", "net_revenue"])
+
+            if not rec_plot.empty:
+                quadrant_colors = {
+                    "Star": BRAND_BURGUNDY,
+                    "Plowhorse": BRAND_GOLD,
+                    "Puzzle": BRAND_SLATE,
+                    "Dog": STATUS_BAD,
+                }
+                fig_opt = px.scatter(
+                    rec_plot,
+                    x="popularity",
+                    y="margin_axis",
+                    size="net_revenue",
+                    color="quadrant",
+                    color_discrete_map=quadrant_colors,
+                    hover_name="display_name",
+                    hover_data={
+                        "recommended_action": True,
+                        "confidence": True,
+                        "net_revenue": ":$,.0f",
+                        "orders_with_item": ":,",
+                        "margin_label": True,
+                        "popularity": ":.1%",
+                        "margin_axis": ":$.2f",
+                    },
+                    title="Menu Engineering Matrix",
+                    labels={
+                        "popularity": "Popularity (% orders with item)",
+                        "margin_axis": "Estimated Margin / Unit or Revenue Proxy",
+                    },
+                )
+                fig_opt.update_layout(height=500)
+                fig_opt.update_xaxes(tickformat=".1%")
+                fig_opt.update_yaxes(tickprefix="$", tickformat=",.2f")
+                apply_plotly_theme(fig_opt)
+                st.plotly_chart(fig_opt, width="stretch")
+
+            st.subheader("Action Recommendations")
+            selected_actions = st.multiselect(
+                "Filter actions",
+                options=action_order,
+                default=action_order,
+                key="obj5_action_filter",
+            )
+            rec_display = menu_recommendations[
+                menu_recommendations["recommended_action"].isin(selected_actions)
+            ].copy()
+            rec_display = rec_display.sort_values(["recommended_action", "net_revenue"], ascending=[True, False])
+            rec_display["popularity_pct"] = rec_display["popularity"] * 100
+            rec_display["discount_rate_pct"] = rec_display["discount_rate"] * 100
+            rec_display["cost_coverage_pct"] = rec_display["cost_coverage"] * 100
+            st.dataframe(
+                rec_display[
+                    [
+                        "display_name", "category", "quadrant", "recommended_action", "confidence",
+                        "net_revenue", "orders_with_item", "popularity_pct", "avg_unit_price",
+                        "avg_est_margin_per_unit", "avg_net_rev_per_unit", "discount_rate_pct",
+                        "cost_coverage_pct", "margin_source",
+                    ]
+                ],
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "display_name": "Item",
+                    "category": "Category",
+                    "quadrant": "Quadrant",
+                    "recommended_action": "Action",
+                    "confidence": "Confidence",
+                    "net_revenue": st.column_config.NumberColumn("Net Revenue", format="$%.2f"),
+                    "orders_with_item": st.column_config.NumberColumn("Orders With Item", format="%d"),
+                    "popularity_pct": st.column_config.NumberColumn("Popularity", format="%.2f%%"),
+                    "avg_unit_price": st.column_config.NumberColumn("Avg Price", format="$%.2f"),
+                    "avg_est_margin_per_unit": st.column_config.NumberColumn("Est Margin / Unit", format="$%.2f"),
+                    "avg_net_rev_per_unit": st.column_config.NumberColumn("Net Rev / Unit", format="$%.2f"),
+                    "discount_rate_pct": st.column_config.NumberColumn("Discount Rate", format="%.2f%%"),
+                    "cost_coverage_pct": st.column_config.NumberColumn("Cost Coverage", format="%.2f%%"),
+                    "margin_source": "Margin Source",
+                },
+            )
+
+            col1, col2 = st.columns(2)
+
+            with col1:
+                st.subheader("Bundle Opportunities")
+                if bundle_data.empty:
+                    st.info("No bundle pairs met the minimum threshold of 50 orders and 1.2 lift.")
+                else:
+                    bundle_display = bundle_data.head(25).copy()
+                    bundle_display["support_pct"] = bundle_display["support"] * 100
+                    bundle_display["confidence_b_given_a_pct"] = bundle_display["confidence_b_given_a"] * 100
+                    bundle_display["confidence_a_given_b_pct"] = bundle_display["confidence_a_given_b"] * 100
+                    st.dataframe(
+                        bundle_display[
+                            [
+                                "display_a", "display_b", "pair_type", "pair_count", "support_pct",
+                                "confidence_b_given_a_pct", "confidence_a_given_b_pct", "lift",
+                            ]
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                        column_config={
+                            "display_a": "Item A",
+                            "display_b": "Item B",
+                            "pair_type": "Pair Type",
+                            "pair_count": st.column_config.NumberColumn("Pair Orders", format="%d"),
+                            "support_pct": st.column_config.NumberColumn("Support", format="%.2f%%"),
+                            "confidence_b_given_a_pct": st.column_config.NumberColumn("Conf B|A", format="%.2f%%"),
+                            "confidence_a_given_b_pct": st.column_config.NumberColumn("Conf A|B", format="%.2f%%"),
+                            "lift": st.column_config.NumberColumn("Lift", format="%.2f"),
+                        },
+                    )
+
+            with col2:
+                st.subheader("Promo & Price Signals")
+                if promo_data.empty:
+                    st.info("No promo or price candidates met the minimum data threshold.")
+                else:
+                    promo_display = promo_data.head(25).copy()
+                    st.dataframe(
+                        promo_display[
+                            [
+                                "display_name", "category", "opportunity_type", "store_days",
+                                "discount_days", "qty_lift_on_discount_days", "unique_prices",
+                                "price_range",
+                            ]
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                        column_config={
+                            "display_name": "Item",
+                            "category": "Category",
+                            "opportunity_type": "Opportunity",
+                            "store_days": st.column_config.NumberColumn("Store-Days", format="%d"),
+                            "discount_days": st.column_config.NumberColumn("Discount Days", format="%d"),
+                            "qty_lift_on_discount_days": st.column_config.NumberColumn("Qty Lift", format="%.1f"),
+                            "unique_prices": st.column_config.NumberColumn("Unique Prices", format="%d"),
+                            "price_range": st.column_config.NumberColumn("Price Range", format="$%.2f"),
+                        },
+                    )
+
+            if not price_margin_data.empty:
+                with st.expander("Margin and removal candidates"):
+                    price_margin_display = price_margin_data.copy()
+                    price_margin_display["est_margin_pct_display"] = price_margin_display["est_margin_pct"] * 100
+                    price_margin_display["cost_coverage_pct"] = price_margin_display["cost_coverage"] * 100
+                    st.dataframe(
+                        price_margin_display[
+                            [
+                                "display_name", "category", "quadrant", "recommended_action", "confidence",
+                                "net_revenue", "avg_est_margin_per_unit", "est_margin_pct_display",
+                                "cost_coverage_pct",
+                            ]
+                        ],
+                        hide_index=True,
+                        width="stretch",
+                        column_config={
+                            "display_name": "Item",
+                            "category": "Category",
+                            "quadrant": "Quadrant",
+                            "recommended_action": "Action",
+                            "confidence": "Confidence",
+                            "net_revenue": st.column_config.NumberColumn("Net Revenue", format="$%.2f"),
+                            "avg_est_margin_per_unit": st.column_config.NumberColumn("Est Margin / Unit", format="$%.2f"),
+                            "est_margin_pct_display": st.column_config.NumberColumn("Est Margin %", format="%.2f%%"),
+                            "cost_coverage_pct": st.column_config.NumberColumn("Cost Coverage", format="%.2f%%"),
+                        },
+                    )
+
+            st.caption(
+                "Margin estimates use synthetic inventory unit cost when available; otherwise the matrix falls back to "
+                "net revenue per unit as a profit proxy. Promo signals are directional because explicit campaign "
+                "tags are not available."
+            )
+
+    with tab_drivers:
         st.subheader("Revenue Drivers")
         st.caption(
             "OLS regression (HC3 robust SEs) on daily net revenue. "
@@ -1343,7 +1715,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                     x=coef_df["beta"],
                     y=coef_df["label"],
                     orientation="h",
-                    marker_color=[BRAND_BURGUNDY if b > 0 else BRAND_SLATE for b in coef_df["beta"]],
+                    marker_color=[DRIVER_POSITIVE if b > 0 else DRIVER_NEGATIVE for b in coef_df["beta"]],
                     text=[f"β={b:.3f} {s}" for b, s in zip(coef_df["beta"], coef_df["sig"])],
                     textposition="outside",
                 ))
@@ -1464,11 +1836,50 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 apply_plotly_theme(fig_rev)
                 st.plotly_chart(fig_rev, width="stretch")
 
+            if not rfm_data.empty:
+                st.subheader("Customer Segments")
+                rfm_sorted = rfm_data.sort_values("avg_total_spend", ascending=True)
+                fig_rfm = go.Figure(go.Bar(
+                    x=rfm_sorted["pct"],
+                    y=rfm_sorted["segment"],
+                    orientation="h",
+                    marker=dict(
+                        color=rfm_sorted["avg_total_spend"],
+                        colorscale=[[0.0, BRAND_GOLD], [0.5, BRAND_BURGUNDY], [1.0, BRAND_CHARCOAL]],
+                        showscale=True,
+                        colorbar=dict(title="Avg Spend ($)"),
+                    ),
+                    text=rfm_sorted.apply(
+                        lambda r: f"{r['pct']:.1f}%  -  ${r['avg_total_spend']:.0f} avg", axis=1
+                    ),
+                    textposition="outside",
+                    hovertemplate=(
+                        "<b>%{y}</b><br>"
+                        "Share: %{x:.1f}%<br>"
+                        "Avg spend: $%{marker.color:.2f}<br>"
+                        "Avg visits: %{customdata[0]:.1f}<br>"
+                        "Avg recency: %{customdata[1]:.1f} days<extra></extra>"
+                    ),
+                    customdata=rfm_sorted[["avg_visits", "avg_recency_days"]].values,
+                ))
+                fig_rfm.update_layout(
+                    xaxis_title="% of Customers",
+                    yaxis_title="",
+                    height=max(300, len(rfm_sorted) * 45),
+                    margin=dict(l=160),
+                )
+                apply_plotly_theme(fig_rfm)
+                st.plotly_chart(fig_rfm, width="stretch")
+                st.caption(
+                    "Segments ranked by avg spend. Color = average spend per customer. "
+                    "Recency = days since last visit."
+                )
+
             p95 = customer_data["total_spend"].quantile(0.95)
             fig_spend = px.histogram(
                 customer_data["total_spend"].clip(upper=p95),
                 nbins=30,
-                title="Customer Total Spend Distribution (capped at 95th percentile)",
+                title=f"Customer Total Spend Distribution (capped at 95th percentile: ${p95:,.0f})",
                 color_discrete_sequence=[BRAND_BURGUNDY],
             )
             fig_spend.update_layout(
@@ -1477,6 +1888,7 @@ The generated SQL shown in the Q&A section matches the production query pattern.
                 yaxis_title="Customers",
                 height=350,
             )
+            fig_spend.update_xaxes(tickprefix="$", tickformat=",.0f")
             apply_plotly_theme(fig_spend)
             st.plotly_chart(fig_spend, width="stretch")
 
